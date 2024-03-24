@@ -1,3 +1,5 @@
+import logging
+
 import yaml
 
 import src.models
@@ -7,14 +9,14 @@ import os
 import torch
 
 
-def save_model(model, optimizer, scheduler, accuracy_list, args: Args):
+def save_model(model, optimizer, scheduler, accuracy_list, args: Args, logger: logging.Logger):
     file_path = os.path.join(args.exp_path, "checkpoint_model.ckpt")
     torch.save({
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict(),
         'accuracy_list': accuracy_list}, file_path)
-    args.logger.info("Save checkpoint at {}".format(file_path))
+    logger.info("Save checkpoint at {}".format(file_path))
 
 
 def load_model(exp_id: str, dim: int, args: Args):

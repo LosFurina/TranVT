@@ -19,6 +19,3 @@ class Args(object):
         self.lr = None
         self.batch_size = None
         self.epochs = None
-
-        self.logger = None  # No
-        self.logger: logging.Logger

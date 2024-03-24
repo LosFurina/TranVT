@@ -23,6 +23,8 @@ from matplotlib import pyplot as plt
 from src.constant import Args
 from src.save_model import save_model, load_model
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class Main(object):
 
@@ -45,7 +47,6 @@ class Main(object):
         self.args.config_path = self.exp_config_path
         self.args.exp_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", now)
 
-        self.args.logger = self.logger
         self.args.lr = self.paser.lr
         self.args.win_size = self.paser.win_size
         self.args.batch_size = self.paser.batch_size
@@ -75,7 +76,7 @@ class Main(object):
                 os.makedirs(should_dir)
 
             with open(self.exp_config_path, "w") as f:
-                yaml.dump(self.args.__dict__.pop("logger"), f, default_flow_style=False)
+                yaml.dump(self.args.__dict__, f, default_flow_style=False)
 
     def set_logger(self):
         self.logger = logging.getLogger(__name__)
@@ -189,7 +190,7 @@ class Main(object):
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
         self.logger.info("Load dataset finished")
         # 2. Load model=================================================================================================
-        model = src.models.TranVT(ts_train.shape[1], self.args).double()
+        model = src.models.TranVT(ts_train.shape[1], self.args).double().to(device)
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.args.lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 5, 0.9)  # dynamic learning rate
         self.logger.info("Load model finished")
@@ -204,15 +205,15 @@ class Main(object):
         for e in tqdm(list(range(1, num_epochs + 1))):
             feats = ts_train.shape[1]
             if 'TranVT' in model.name:
-                data_x = torch.DoubleTensor(ts_train_win)
+                data_x = torch.DoubleTensor(ts_train_win).to(device)
                 dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
-                dataloader = DataLoader(dataset, batch_size=self.args.batch_size)
+                dataloader = DataLoader(dataset, batch_size=self.args.batch_size, shuffle=True)
                 weight = 1  # @TODO: Change weight distribution on two model's put out
                 l1s, l2s = [], []
 
                 for d, _ in dataloader:
                     local_bs = d.shape[0]
-                    window = d.permute(1, 0, 2)
+                    window = d.permute(1, 0, 2).to(device)
                     gd = window[-1, :, :].view(1, local_bs, feats)
                     z = model(window, gd)
                     l1 = ((1 / weight) * nn.functional.mse_loss(z[0], gd) +
@@ -223,12 +224,12 @@ class Main(object):
                     loss.backward()
                     optimizer.step()
                 scheduler.step()
-                self.args.logger.info(f'Epoch {e},\tL1 = {np.mean(l1s)}')
+                self.logger.info(f'Epoch {e},\tL1 = {np.mean(l1s)}')
 
         self.logger.info("Train finished")
         self.logger.info(f"End time: {str(datetime.now())}")
         # 4. Save model=================================================================================================
-        save_model(model, optimizer, scheduler, accuracy_list, self.args)
+        save_model(model, optimizer, scheduler, accuracy_list, self.args, self.logger)
         self.logger.info("Train finished")
 
     def test(self):
@@ -236,30 +237,35 @@ class Main(object):
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
         self.logger.info("Load dataset finished")
         # 2. Load model=================================================================================================
-        model, _, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
-        model = model.double()
+        model, optimizer, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
+        model = model.double().to(device)
+        model.eval()
+        optimizer.zero_grad()
         self.logger.info("Load model finished")
         # Test
-        data_x = torch.DoubleTensor(ts_test_win)
+        data_x = torch.DoubleTensor(ts_test_win).to(device).to(device)
         dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
         dataloader = DataLoader(dataset, batch_size=self.args.batch_size)
 
-        output1 = []
-        output2 = []
-        for d, _ in dataloader:
-            local_bs = d.shape[0]
-            window = d.permute(1, 0, 2)
-            gd = window[-1, :, :].view(1, local_bs, ts_test.shape[1])
-            z = model(window, gd)
-            output1.append(z[0].reshape(-1, ts_test.shape[1]))
-            output2.append(z[1].reshape(-1, ts_test.shape[1]))
+        with torch.no_grad():
+            output1 = []
+            output2 = []
+            for d, _ in dataloader:
+                optimizer.zero_grad()
+                local_bs = d.shape[0]
+                window = d.permute(1, 0, 2)
+                gd = window[-1, :, :].view(1, local_bs, ts_test.shape[1])
+                z = model(window, gd)
+                output1.append(z[0].reshape(-1, ts_test.shape[1]))
+                output2.append(z[1].reshape(-1, ts_test.shape[1]))
+                optimizer.zero_grad()
 
-        output1_cat = torch.cat(output1, dim=0)
-        output2_cat = torch.cat(output2, dim=0)
-        del output1
-        del output2
-        Main.plot_pics(output1_cat.detach().numpy(), ts_test.detach().numpy(), self.args, 20)
-        # Main.plot_pics(output2_cat.numpy(), ts_test.numpy(), self.args)
+            model_output1 = torch.cat(output1, dim=0)
+            model_output2 = torch.cat(output2, dim=0)
+            del output1
+            del output2
+
+        # Anomaly detection
 
 
 if __name__ == '__main__':
