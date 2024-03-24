@@ -13,6 +13,7 @@ class Args(object):
         self.dataset_path = None  # No
         self.config_path = None  # No
         self.exp_path = None  # No
+        self.exp_id = None
 
         self.win_size = None
         self.lr = None

@@ -17,6 +17,8 @@ from datetime import datetime
 from tqdm import tqdm
 from torch import nn
 from torch.utils.data import Dataset, DataLoader, TensorDataset
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib import pyplot as plt
 
 from src.constant import Args
 from src.save_model import save_model, load_model
@@ -49,12 +51,31 @@ class Main(object):
         self.args.batch_size = self.paser.batch_size
         self.args.epochs = self.paser.epochs
 
-        should_dir = str(pathlib.Path(self.exp_config_path).parent.resolve())
-        if not os.path.exists(should_dir):
-            os.makedirs(should_dir)
+        if self.paser.test:
+            if self.paser.exp_id is None:
+                raise Exception("No experiment id was given!")
+            config_path = os.path.join("exp", self.paser.exp_id, "config.yaml")
+            with open(config_path, "r") as f:
+                config = yaml.load(f, Loader=yaml.FullLoader)
+            self.args.run_time = config.get("run_time")
+            self.args.dataset = config.get("dataset")
+            self.args.model = config.get("model")
+            self.args.dataset_path = config.get("dataset_path")
+            self.args.config_path = config.get("config_path")
+            self.args.exp_path = config.get("exp_path")
+            self.args.exp_id = self.paser.exp_id
 
-        with open(self.exp_config_path, "w") as f:
-            yaml.dump(self.args.__dict__, f, default_flow_style=False)
+            self.args.lr = config.get("lr")
+            self.args.win_size = config.get("win_size")
+            self.args.batch_size = config.get("batch_size")
+            self.args.epochs = config.get("epochs")
+        else:
+            should_dir = str(pathlib.Path(self.exp_config_path).parent.resolve())
+            if not os.path.exists(should_dir):
+                os.makedirs(should_dir)
+
+            with open(self.exp_config_path, "w") as f:
+                yaml.dump(self.args.__dict__.pop("logger"), f, default_flow_style=False)
 
     def set_logger(self):
         self.logger = logging.getLogger(__name__)
@@ -103,6 +124,14 @@ class Main(object):
                             required=False,
                             default=5,
                             help="epoch times")
+        parser.add_argument('--test',
+                            action='store_true',
+                            help="test model")
+        parser.add_argument('--exp_id',
+                            metavar='-ei',
+                            type=str,
+                            required=False,
+                            help="tested checkpoint id")
         self.paser = parser.parse_args()
 
     def load_dataset(self):
@@ -116,7 +145,7 @@ class Main(object):
 
             # Drop the first and last columns
             df_train = df_train.drop(columns=[df_train.columns[0], df_train.columns[-1]])
-            df_test = df_test.drop(columns=[df_test.columns[0]])
+            df_test = df_test.drop(columns=[df_test.columns[0], df_train.columns[-1]])
 
             ts_train = torch.from_numpy(df_train.values)
             ts_test = torch.from_numpy(df_test.values)
@@ -138,6 +167,22 @@ class Main(object):
                 w = torch.cat([data[0].repeat(w_size - i, 1), data[0:i]])
             windows.append(w)
         return torch.stack(windows)
+
+    @staticmethod
+    def plot_pics(np_ori: np.ndarray, np_pred: np.ndarray, args: Args, step=10):
+        pdf = PdfPages(os.path.join(args.exp_path, "plotter.pdf"))
+        for dim in range(np_ori.shape[1]):
+            y_o, y_p = np_ori[::step, dim], np_pred[::step, dim]
+            fig, ax1 = plt.subplots(1, 1, sharex=True)
+            ax1.set_ylabel('Value')
+            ax1.set_title(f'Dimension = {dim}')
+
+            ax1.plot(y_o, linewidth=0.2, label='Original Value')
+            ax1.plot(y_p, '-', alpha=0.6, linewidth=0.3, label='Predicted')
+            ax1.legend()
+            pdf.savefig(fig)
+            plt.close()
+        pdf.close()
 
     def train(self):
         # 1.Load dataset================================================================================================
@@ -162,7 +207,7 @@ class Main(object):
                 data_x = torch.DoubleTensor(ts_train_win)
                 dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
                 dataloader = DataLoader(dataset, batch_size=self.args.batch_size)
-                weight = 1  # weight
+                weight = 1  # @TODO: Change weight distribution on two model's put out
                 l1s, l2s = [], []
 
                 for d, _ in dataloader:
@@ -186,12 +231,37 @@ class Main(object):
         save_model(model, optimizer, scheduler, accuracy_list, self.args)
         self.logger.info("Train finished")
 
-    def run(self):
-        self.logger.info("Initialize finished")
-        self.train()  # TODO: Pred or Recons
-        # self.test()
+    def test(self):
+        # 1.Load dataset================================================================================================
+        ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
+        self.logger.info("Load dataset finished")
+        # 2. Load model=================================================================================================
+        model, _, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
+        model = model.double()
+        self.logger.info("Load model finished")
+        # Test
+        data_x = torch.DoubleTensor(ts_test_win)
+        dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
+        dataloader = DataLoader(dataset, batch_size=self.args.batch_size)
+
+        output1 = []
+        output2 = []
+        for d, _ in dataloader:
+            local_bs = d.shape[0]
+            window = d.permute(1, 0, 2)
+            gd = window[-1, :, :].view(1, local_bs, ts_test.shape[1])
+            z = model(window, gd)
+            output1.append(z[0].reshape(-1, ts_test.shape[1]))
+            output2.append(z[1].reshape(-1, ts_test.shape[1]))
+
+        output1_cat = torch.cat(output1, dim=0)
+        output2_cat = torch.cat(output2, dim=0)
+        del output1
+        del output2
+        Main.plot_pics(output1_cat.detach().numpy(), ts_test.detach().numpy(), self.args, 20)
+        # Main.plot_pics(output2_cat.numpy(), ts_test.numpy(), self.args)
 
 
 if __name__ == '__main__':
     main = Main()
-    main.run()
+    main.test()

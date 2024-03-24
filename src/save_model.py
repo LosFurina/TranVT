@@ -1,3 +1,5 @@
+import yaml
+
 import src.models
 from src.constant import Args
 
@@ -15,12 +17,13 @@ def save_model(model, optimizer, scheduler, accuracy_list, args: Args):
     args.logger.info("Save checkpoint at {}".format(file_path))
 
 
-def load_model(load_path: str, args: Args):
-    model = src.models.TranVT(0, args)
+def load_model(exp_id: str, dim: int, args: Args):
+    checkpoint_path = os.path.join("exp", str(exp_id), "checkpoint_model.ckpt")
+    model = src.models.TranVT(dim, args)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=0, gamma=0)
 
-    checkpoint = torch.load(load_path)
+    checkpoint = torch.load(checkpoint_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
