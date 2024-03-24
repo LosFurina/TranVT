@@ -22,6 +22,8 @@ from matplotlib import pyplot as plt
 
 from src.constant import Args
 from src.save_model import save_model, load_model
+from src.pot import pot_eval
+from src.diagnosis import hit_att, ndcg
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -185,6 +187,29 @@ class Main(object):
             plt.close()
         pdf.close()
 
+    @staticmethod
+    def plotter(y_true, y_pred, ascore, labels, args: Args):
+        pdf = PdfPages(os.path.join(args.exp_path, "plotter.pdf"))
+        for dim in range(y_true.shape[1]):
+            y_t, y_p, l, a_s = y_true[:, dim], y_pred[:, dim], labels, ascore[:, dim]
+            fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
+            ax1.set_ylabel('Value')
+            ax1.set_title(f'Dimension = {dim}')
+            # if dim == 0: np.save(f'true{dim}.npy', y_t); np.save(f'pred{dim}.npy', y_p); np.save(f'ascore{dim}.npy', a_s)
+            ax1.plot(y_t, linewidth=0.2, label='True')
+            ax1.plot(y_p, '-', alpha=0.6, linewidth=0.3, label='Predicted')
+            ax3 = ax1.twinx()
+            ax3.plot(l, '--', linewidth=0.3, alpha=0.5)
+            ax3.fill_between(np.arange(l.shape[0]), l, color='blue', alpha=0.3)
+            if dim == 0:
+                ax1.legend(ncol=2, bbox_to_anchor=(0.6, 1.02))
+            ax2.plot(a_s, linewidth=0.2, color='g')
+            ax2.set_xlabel('Timestamp')
+            ax2.set_ylabel('Anomaly Score')
+            pdf.savefig(fig)
+            plt.close()
+        pdf.close()
+
     def train(self):
         # 1.Load dataset================================================================================================
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
@@ -235,37 +260,64 @@ class Main(object):
     def test(self):
         # 1.Load dataset================================================================================================
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
+        ts_label = ts_label.to(device)
         self.logger.info("Load dataset finished")
-        # 2. Load model=================================================================================================
-        model, optimizer, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
+        # 2.Load model==================================================================================================
+        model, _, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
         model = model.double().to(device)
         model.eval()
-        optimizer.zero_grad()
         self.logger.info("Load model finished")
-        # Test
-        data_x = torch.DoubleTensor(ts_test_win).to(device).to(device)
-        dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
-        dataloader = DataLoader(dataset, batch_size=self.args.batch_size)
+        # 3.Test========================================================================================================
+        data_test = torch.DoubleTensor(ts_test_win).to(device)
+        dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
+        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 10)  # In order to calculate fast, but if your ram is not big enough, please decline the batch size
 
+        data_train = torch.DoubleTensor(ts_train_win).to(device)
+        dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
+        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 10)
+
+        los_f = nn.MSELoss(reduction='none')
         with torch.no_grad():
-            output1 = []
-            output2 = []
-            for d, _ in dataloader:
-                optimizer.zero_grad()
-                local_bs = d.shape[0]
-                window = d.permute(1, 0, 2)
-                gd = window[-1, :, :].view(1, local_bs, ts_test.shape[1])
-                z = model(window, gd)
-                output1.append(z[0].reshape(-1, ts_test.shape[1]))
-                output2.append(z[1].reshape(-1, ts_test.shape[1]))
-                optimizer.zero_grad()
+            pred_1 = []
+            # pred_2 = []
+            loss_1 = []
+            loss_2 = []
+            for i in ["train", "test"]:
+                output1 = []
+                output2 = []
+                for d, _ in eval(f"dataloader_{i}"):
+                    local_bs = d.shape[0]
+                    window = d.permute(1, 0, 2)
+                    gd = window[-1, :, :].view(1, local_bs, ts_test.shape[1])
+                    z = model(window, gd)
+                    output1.append(z[0].reshape(-1, ts_test.shape[1]))
+                    output2.append(z[1].reshape(-1, ts_test.shape[1]))
 
-            model_output1 = torch.cat(output1, dim=0)
-            model_output2 = torch.cat(output2, dim=0)
-            del output1
-            del output2
+                mod_out1 = torch.cat(output1, dim=0)
+                # mod_out2 = torch.cat(output2, dim=0)
+                pred_1.append(mod_out1.detach().cpu().numpy())
+                # pred_2.append(mod_out2)
+                loss_1.append(los_f(mod_out1, eval(f"ts_{i}").double().to(device)).detach().cpu().numpy())
+                # loss_2.append(los_f(mod_out2, eval(f"ts_{i}").double().to(device)).detach().cpu().numpy())
+                del output1
+                del output2
 
-        # Anomaly detection
+        ts_label = ts_label.detach().cpu().numpy()
+        Main.plotter(ts_test.detach().cpu().numpy(), pred_1[1], loss_1[1], ts_label, self.args)
+        # 4.Anomaly detection===========================================================================================
+        df = pd.DataFrame()
+        for i in range(loss_1[0].shape[1]):
+            ltrain, ltest, ls = loss_1[0][:, i], loss_1[1][:, i], ts_label
+            result, pred = pot_eval(ltrain, ltest, ls)
+            df = pd.concat([df, pd.DataFrame([result])], ignore_index=True)
+
+        lossTfinal, lossFinal = np.mean(loss_1[0], axis=1), np.mean(loss_1[1], axis=1)
+
+        result, _ = pot_eval(lossTfinal, lossFinal, ts_label)
+        result.update(hit_att(loss_1[1], ts_label))
+        result.update(ndcg(loss_1[1], ts_label))
+        print(df)
+        print(result)
 
 
 if __name__ == '__main__':
