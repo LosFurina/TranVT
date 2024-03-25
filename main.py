@@ -33,9 +33,6 @@ class Main(object):
     def __init__(self):
         self.paser = argparse.Namespace
         self.set_paser()
-        self.logger = None
-        self.logger: logging.Logger
-        self.set_logger()
 
         now = str(datetime.now().strftime("%Y-%m-%d_%H-%M"))
         self.exp_config_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", now, "config.yaml")
@@ -53,6 +50,8 @@ class Main(object):
         self.args.win_size = self.paser.win_size
         self.args.batch_size = self.paser.batch_size
         self.args.epochs = self.paser.epochs
+
+        self.args.top_k = self.paser.top_k
 
         if self.paser.test:
             if self.paser.exp_id is None:
@@ -72,6 +71,8 @@ class Main(object):
             self.args.win_size = config.get("win_size")
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
+
+            self.args.top_k = config.get("top_k")
         else:
             should_dir = str(pathlib.Path(self.exp_config_path).parent.resolve())
             if not os.path.exists(should_dir):
@@ -80,14 +81,27 @@ class Main(object):
             with open(self.exp_config_path, "w") as f:
                 yaml.dump(self.args.__dict__, f, default_flow_style=False)
 
+        self.logger = None
+        self.logger: logging.Logger
+        self.set_logger()
+
     def set_logger(self):
         self.logger = logging.getLogger(__name__)
         self.logger.setLevel(logging.INFO)
-        handler = logging.StreamHandler()
-        handler.setLevel(logging.INFO)
+
+        # 添加一个输出到控制台的处理器
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
         formatter = logging.Formatter("[%(asctime)s][%(name)s][%(levelname)s] - %(message)s")
-        handler.setFormatter(formatter)
-        self.logger.addHandler(handler)
+        console_handler.setFormatter(formatter)
+        self.logger.addHandler(console_handler)
+
+        # 添加一个输出到文件的处理器
+        now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        file_handler = logging.FileHandler(os.path.join(self.args.exp_path, f"{now}.log"))
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        self.logger.addHandler(file_handler)
 
     def set_paser(self):
         parser = argparse.ArgumentParser(description='Time-Series Anomaly Detection on Variable and Time dimension')
@@ -135,6 +149,11 @@ class Main(object):
                             type=str,
                             required=False,
                             help="tested checkpoint id")
+        parser.add_argument('--top_k',
+                            metavar='-t',
+                            type=int,
+                            required=False,
+                            help="the top k score used in evaluation algorithm")
         self.paser = parser.parse_args()
 
     def load_dataset(self):
@@ -195,7 +214,6 @@ class Main(object):
             fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True)
             ax1.set_ylabel('Value')
             ax1.set_title(f'Dimension = {dim}')
-            # if dim == 0: np.save(f'true{dim}.npy', y_t); np.save(f'pred{dim}.npy', y_p); np.save(f'ascore{dim}.npy', a_s)
             ax1.plot(y_t, linewidth=0.2, label='True')
             ax1.plot(y_p, '-', alpha=0.6, linewidth=0.3, label='Predicted')
             ax3 = ax1.twinx()
@@ -261,63 +279,75 @@ class Main(object):
         # 1.Load dataset================================================================================================
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
         ts_label = ts_label.to(device)
-        self.logger.info("Load dataset finished")
+        self.logger.info(f"Load dataset [{self.args.dataset}] finished")
         # 2.Load model==================================================================================================
         model, _, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
         model = model.double().to(device)
         model.eval()
-        self.logger.info("Load model finished")
+        self.logger.info(f"Load model [{self.args.model}] finished")
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 10)  # In order to calculate fast, but if your ram is not big enough, please decline the batch size
+        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 10)
+        # In order to calculate fast, but if your ram is not big enough, please decline the batch size
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
         dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
         dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 10)
 
+        dataloader = {
+            "train": dataloader_train,
+            "test": dataloader_test
+        }
+
         los_f = nn.MSELoss(reduction='none')
         with torch.no_grad():
-            pred_1 = []
-            # pred_2 = []
-            loss_1 = []
-            loss_2 = []
-            for i in ["train", "test"]:
+            pred_1 = {}
+            loss_1 = {}
+            self.logger.info("Test dataset is going through pre-trained model")
+            for k, v_da in dataloader.items():
+                # v_da: value of dataloader
                 output1 = []
-                output2 = []
-                for d, _ in eval(f"dataloader_{i}"):
+                # output2 = []
+                for d, _ in tqdm(v_da):
                     local_bs = d.shape[0]
                     window = d.permute(1, 0, 2)
                     gd = window[-1, :, :].view(1, local_bs, ts_test.shape[1])
                     z = model(window, gd)
-                    output1.append(z[0].reshape(-1, ts_test.shape[1]))
-                    output2.append(z[1].reshape(-1, ts_test.shape[1]))
+                    output1.append(z[0].reshape(-1, ts_test.shape[1]))  # first output, every single batch
+                    # output2.append(z[1].reshape(-1, ts_test.shape[1]))
 
                 mod_out1 = torch.cat(output1, dim=0)
-                # mod_out2 = torch.cat(output2, dim=0)
-                pred_1.append(mod_out1.detach().cpu().numpy())
-                # pred_2.append(mod_out2)
-                loss_1.append(los_f(mod_out1, eval(f"ts_{i}").double().to(device)).detach().cpu().numpy())
+                pred_1[k] = mod_out1.detach().cpu().numpy()
+                loss_1[k] = los_f(mod_out1, eval(f"ts_{k}").double().to(device)).detach().cpu().numpy()
                 # loss_2.append(los_f(mod_out2, eval(f"ts_{i}").double().to(device)).detach().cpu().numpy())
                 del output1
-                del output2
 
         ts_label = ts_label.detach().cpu().numpy()
-        Main.plotter(ts_test.detach().cpu().numpy(), pred_1[1], loss_1[1], ts_label, self.args)
-        # 4.Anomaly detection===========================================================================================
+        ts_test = ts_test.detach().cpu().numpy()
+        ts_train = ts_train.detach().cpu().numpy()
+        Main.plotter(ts_test, pred_1["test"], loss_1["test"], ts_label, self.args)
+        # 4.1.Anomaly detection from TranAD=============================================================================
+        self.logger.info("Anomaly Detection on SPOT algorithm")
         df = pd.DataFrame()
-        for i in range(loss_1[0].shape[1]):
-            ltrain, ltest, ls = loss_1[0][:, i], loss_1[1][:, i], ts_label
-            result, pred = pot_eval(ltrain, ltest, ls)
+        for i in range(loss_1["train"].shape[1]):
+            loss_train, loss_test, label = loss_1["train"][:, i], loss_1["test"][:, i], ts_label
+            result, pred = pot_eval(loss_train, loss_test, label)
             df = pd.concat([df, pd.DataFrame([result])], ignore_index=True)
 
-        lossTfinal, lossFinal = np.mean(loss_1[0], axis=1), np.mean(loss_1[1], axis=1)
+        loss_train_mean, loss_test_mean = np.mean(loss_1["train"], axis=1), np.mean(loss_1["test"], axis=1)
 
-        result, _ = pot_eval(lossTfinal, lossFinal, ts_label)
-        result.update(hit_att(loss_1[1], ts_label))
-        result.update(ndcg(loss_1[1], ts_label))
-        print(df)
-        print(result)
+        result, _ = pot_eval(loss_train_mean, loss_test_mean, ts_label)
+        result.update(hit_att(loss_1["test"], ts_label))
+        result.update(ndcg(loss_1["test"], ts_label))
+        self.logger.info(df)
+        self.logger.info(result)
+        # 4.2.Anomaly detection from topK
+        self.logger.info("Anomaly Detection on topK algorithm")
+        from src.topk import get_best_f1_score
+        test_result = [pred_1["test"], ts_test, ts_label]
+        val_result = [pred_1["train"], ts_train, ts_label]
+        get_best_f1_score(test_result, val_result, self.logger, top_k=self.args.top_k)
 
 
 if __name__ == '__main__':

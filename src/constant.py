@@ -19,3 +19,5 @@ class Args(object):
         self.lr = None
         self.batch_size = None
         self.epochs = None
+
+        self.top_k = None
