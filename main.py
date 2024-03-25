@@ -72,7 +72,6 @@ class Main(object):
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
 
-            self.args.top_k = config.get("top_k")
         else:
             should_dir = str(pathlib.Path(self.exp_config_path).parent.resolve())
             if not os.path.exists(should_dir):
@@ -304,7 +303,7 @@ class Main(object):
         with torch.no_grad():
             pred_1 = {}
             loss_1 = {}
-            self.logger.info("Test dataset is going through pre-trained model")
+            self.logger.info("Test dataset is going through per-trained model")
             for k, v_da in dataloader.items():
                 # v_da: value of dataloader
                 output1 = []
