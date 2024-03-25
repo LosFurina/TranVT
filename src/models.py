@@ -1,3 +1,5 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -549,9 +551,13 @@ class TranAD(nn.Module):
         return x1, x2
 
 
-class TranVT(nn.Module):
+class TranVTV(nn.Module):
+    """
+    TranVTP model: Transformer on Variable and Time dimension via Vanilla mode (TranVTP)
+    """
+
     def __init__(self, feats, args: Args):
-        super(TranVT, self).__init__()
+        super(TranVTV, self).__init__()
         self.name = args.model
         self.lr = args.lr
         self.batch = args.batch_size
@@ -574,6 +580,102 @@ class TranVT(nn.Module):
         src = self.pos_encoder(src)
         memory = self.transformer_encoder(src)
         tgt = tgt.repeat(1, 1, 2)  # expand twofold on 3rd dimension
+        return tgt, memory
+
+    def forward(self, src, tgt):
+        # Phase 1 - Without anomaly scores
+        c = torch.zeros_like(src)
+        x1 = self.fcn(self.transformer_decoder1(*self.encode(src, c, tgt)))
+        # Phase 2 - With anomaly scores
+        c = (x1 - src) ** 2
+        x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
+        return x1, x2
+
+
+class TranVTP(nn.Module):
+    """
+    TranVTP model: Transformer on Variable and Time dimension via Parallel mode (TranVTP)
+    """
+
+    def __init__(self, feats, args: Args):
+        super(TranVTP, self).__init__()
+        self.name = args.model
+        self.lr = args.lr
+        self.batch = args.batch_size
+        self.n_feats = feats
+        self.n_window = args.win_size
+        self.n = self.n_feats * self.n_window
+
+        self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
+
+        encoder_layers = TransformerEncoderLayerParallel(d_model_v=feats, d_model_t=args.win_size,  nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+
+        decoder_layers1 = TransformerDecoderLayerParallel(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
+
+        decoder_layers2 = TransformerDecoderLayerParallel(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
+
+        self.fcn = nn.Sequential(nn.Linear(2 * feats, feats), nn.Sigmoid())
+
+    def encode(self, src, c, tgt):
+        src = torch.cat((src, c), dim=2)  # In order to concatenate Positional encoding
+
+        src = src * math.sqrt(self.n_feats)  # Power 1/2
+
+        src = self.pos_encoder(src)
+
+        memory = self.transformer_encoder(src)
+        # tgt = tgt.repeat(1, 1, 2)  # expand twofold on 3rd dimension # TODO: why don't encode position?
+        return tgt, memory
+
+    def forward(self, src, tgt):
+        # Phase 1 - Without anomaly scores
+        c = torch.zeros_like(src)
+        x1 = self.fcn(self.transformer_decoder1(*self.encode(src, c, tgt)))
+        # Phase 2 - With anomaly scores
+        c = (x1 - src) ** 2
+        x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
+        return x1, x2
+
+
+class TranVTS(nn.Module):
+    """
+    TranVTP model: Transformer on Variable and Time dimension via Series mode (TranVTS)
+    """
+
+    def __init__(self, feats, args: Args):
+        super(TranVTS, self).__init__()
+        self.name = args.model
+        self.lr = args.lr
+        self.batch = args.batch_size
+        self.n_feats = feats
+        self.n_window = args.win_size
+        self.n = self.n_feats * self.n_window
+
+        self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
+
+        encoder_layers = TransformerEncoderLayerSeries(d_model_v=feats, d_model_t=args.win_size,  nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+
+        decoder_layers1 = TransformerDecoderLayerSeries(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
+
+        decoder_layers2 = TransformerDecoderLayerSeries(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
+
+        self.fcn = nn.Sequential(nn.Linear(2 * feats, feats), nn.Sigmoid())
+
+    def encode(self, src, c, tgt):
+        src = torch.cat((src, c), dim=2)  # In order to concatenate Positional encoding
+
+        src = src * math.sqrt(self.n_feats)  # Power 1/2
+
+        src = self.pos_encoder(src)
+
+        memory = self.transformer_encoder(src)
+        # tgt = tgt.repeat(1, 1, 2)  # expand twofold on 3rd dimension # TODO: why don't encode position?
         return tgt, memory
 
     def forward(self, src, tgt):

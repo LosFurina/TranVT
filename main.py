@@ -232,7 +232,14 @@ class Main(object):
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
         self.logger.info("Load dataset finished")
         # 2. Load model=================================================================================================
-        model = src.models.TranVT(ts_train.shape[1], self.args).double().to(device)
+        model = None
+        if self.args.model == "TranVTV":
+            model = src.models.TranVTV(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "TranVTP":
+            model = src.models.TranVTP(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "TranVTS":
+            model = src.models.TranVTS(ts_train.shape[1], self.args).double().to(device)
+
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.args.lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 5, 0.9)  # dynamic learning rate
         self.logger.info("Load model finished")
@@ -243,30 +250,28 @@ class Main(object):
         accuracy_list = []
         num_epochs = self.args.epochs
         model.train()
-
         for e in tqdm(list(range(1, num_epochs + 1))):
             feats = ts_train.shape[1]
-            if 'TranVT' in model.name:
-                data_x = torch.DoubleTensor(ts_train_win).to(device)
-                dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
-                dataloader = DataLoader(dataset, batch_size=self.args.batch_size, shuffle=True)
-                weight = 1  # @TODO: Change weight distribution on two model's put out
-                l1s, l2s = [], []
+            data_x = torch.DoubleTensor(ts_train_win).to(device)
+            dataset = TensorDataset(data_x, data_x)  # @TODO: reconstruction methodology
+            dataloader = DataLoader(dataset, batch_size=self.args.batch_size, shuffle=True)
+            weight = 1  # @TODO: Change weight distribution on two model's put out
+            l1s, l2s = [], []
 
-                for d, _ in dataloader:
-                    local_bs = d.shape[0]
-                    window = d.permute(1, 0, 2).to(device)
-                    gd = window[-1, :, :].view(1, local_bs, feats)
-                    z = model(window, gd)
-                    l1 = ((1 / weight) * nn.functional.mse_loss(z[0], gd) +
-                          (1 - 1 / weight) * nn.functional.mse_loss(z[1], gd))
-                    l1s.append(torch.mean(l1).item())
-                    loss = torch.mean(l1)
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-                scheduler.step()
-                self.logger.info(f'Epoch {e},\tL1 = {np.mean(l1s)}')
+            for d, _ in dataloader:
+                local_bs = d.shape[0]
+                window = d.permute(1, 0, 2).to(device)
+                gd = window[-1, :, :].view(1, local_bs, feats)
+                z = model(window, gd)
+                l1 = ((1 / weight) * nn.functional.mse_loss(z[0], gd) +
+                      (1 - 1 / weight) * nn.functional.mse_loss(z[1], gd))
+                l1s.append(torch.mean(l1).item())
+                loss = torch.mean(l1)
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+            scheduler.step()
+            self.logger.info(f'Epoch {e},\tL1 = {np.mean(l1s)}')
 
         self.logger.info("Train finished")
         self.logger.info(f"End time: {str(datetime.now())}")

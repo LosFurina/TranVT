@@ -25,6 +25,7 @@ optional arguments:
   --epochs -e       epoch times
   --test            test model
   --exp_id -ei      tested checkpoint id
+  --top_k -t        topk algorithm param
 ```
 ### 2.1. Train
 ```bash
@@ -34,6 +35,23 @@ python ./train.py --dataset swat --model TranVT --lr 0.0001 --win_size 10 --batc
 ### 2.2. Test
 ```bash
 python ./test.py --dataset swat --model TranVT --test --exp_id 2024-03-24_20-09
+```
+
+### 2.3 Using launcher
+- optional: 
+```bash
+go build -ldflags "-linkmode external -extldflags '-static'" -o launcher.exe .\launcher.go
+```
+```bash
+./launcher.exe
+```
+- windows
+```bash
+./launcher.bat
+```
+- linux: rename the launcher.bat to launcher.sh
+```bash
+./launcher.sh
 ```
 
 # 3. Notice

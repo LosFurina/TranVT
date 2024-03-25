@@ -21,10 +21,15 @@ def save_model(model, optimizer, scheduler, accuracy_list, args: Args, logger: l
 
 def load_model(exp_id: str, dim: int, args: Args):
     checkpoint_path = os.path.join("exp", str(exp_id), "checkpoint_model.ckpt")
-    model = src.models.TranVT(dim, args)
+    model = None
+    if args.model == "TranVTV":
+        model = src.models.TranVTV(dim, args)
+    elif args.model == "TranVTP":
+        model = src.models.TranVTP(dim, args)
+    elif args.model == "TranVTS":
+        model = src.models.TranVTS(dim, args)
     optimizer = torch.optim.AdamW(model.parameters(), lr=0)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=0, gamma=0)
-
     checkpoint = torch.load(checkpoint_path)
     model.load_state_dict(checkpoint['model_state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer_state_dict'])

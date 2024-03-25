@@ -233,6 +233,85 @@ class TransformerEncoderLayer(nn.Module):
         return src
 
 
+class TransformerEncoderLayerParallel(nn.Module):  # TODO: Add parallel mode here
+    def __init__(self, d_model_v, d_model_t, nhead, dim_feedforward=16, dropout=0):
+        super(TransformerEncoderLayerParallel, self).__init__()
+        self.self_attn_v = nn.MultiheadAttention(d_model_v, nhead, dropout=dropout)
+        self.self_attn_t = nn.MultiheadAttention(d_model_t, d_model_t, dropout=dropout)
+
+        self.linear1_v = nn.Linear(d_model_v, dim_feedforward)
+        self.linear1_t = nn.Linear(d_model_t, dim_feedforward)
+
+        self.dropout = nn.Dropout(dropout)
+
+        self.linear2 = nn.Linear(dim_feedforward, d_model_v)
+
+        self.dropout1_v = nn.Dropout(dropout)
+        self.dropout1_t = nn.Dropout(dropout)
+
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(True)
+
+    def forward(self, src, src_mask=None, is_causal=None, src_key_padding_mask=None):
+        split_tensors = torch.split(src, split_size_or_sections=src.shape[2] // 2, dim=2)
+        src_v = split_tensors[0]
+        src_t = torch.transpose(src_v, 0, 2)
+        pos_tensors = split_tensors[1]
+        src2_v = self.self_attn_v(src_v, src_v, src_v)[0]  # TODO: I guess to update code here
+        src2_t = self.self_attn_t(src_t, src_t, src_t)[0]
+
+        src_v = src_v + self.dropout1_v(src2_v)
+        src_t = src_t + self.dropout1_t(src2_t)
+
+        src = src_v + torch.transpose(src_t, 0, 2)  # concat v and t
+
+        src2 = self.linear2(self.dropout(self.activation(self.linear1_v(src))))
+        src = src + self.dropout2(src2)
+        concatenated_tensor = torch.cat((src, pos_tensors), dim=2)
+        return concatenated_tensor
+
+
+class TransformerEncoderLayerSeries(nn.Module):  # TODO: Add parallel mode here
+    def __init__(self, d_model_v, d_model_t, nhead, dim_feedforward=16, dropout=0):
+        super(TransformerEncoderLayerSeries, self).__init__()
+        self.self_attn_v = nn.MultiheadAttention(d_model_v, nhead, dropout=dropout)
+        self.self_attn_t = nn.MultiheadAttention(d_model_t, d_model_t, dropout=dropout)
+
+        self.linear1_v = nn.Linear(d_model_v, dim_feedforward)
+        self.linear1_t = nn.Linear(d_model_t, dim_feedforward)
+
+        self.dropout = nn.Dropout(dropout)
+
+        self.linear2 = nn.Linear(dim_feedforward, d_model_v)
+
+        self.dropout1_v = nn.Dropout(dropout)
+        self.dropout1_t = nn.Dropout(dropout)
+
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(True)
+
+    def forward(self, src, src_mask=None, is_causal=None, src_key_padding_mask=None):
+        split_tensors = torch.split(src, split_size_or_sections=src.shape[2] // 2, dim=2)
+        src_v = split_tensors[0]
+
+        pos_tensors = split_tensors[1]
+        src2_v = self.self_attn_v(src_v, src_v, src_v)[0]  # TODO: I guess to update code here
+        src_t = torch.transpose(src2_v, 0, 2)
+        src2_t = self.self_attn_t(src_t, src_t, src_t)[0]
+
+        src_v = src_v + self.dropout1_v(src2_v)
+        src_t = src_t + self.dropout1_t(src2_t)
+
+        src = src_v + torch.transpose(src_t, 0, 2)  # concat v and t
+
+        src2 = self.linear2(self.dropout(self.activation(self.linear1_v(src))))
+        src = src + self.dropout2(src2)
+        concatenated_tensor = torch.cat((src, pos_tensors), dim=2)
+        return concatenated_tensor
+
+
 class TransformerDecoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=16, dropout=0):
         super(TransformerDecoderLayer, self).__init__()
@@ -251,6 +330,64 @@ class TransformerDecoderLayer(nn.Module):
                 memory_key_padding_mask=None):
         tgt2 = self.self_attn(tgt, tgt, tgt)[0]
         tgt = tgt + self.dropout1(tgt2)
+        tgt2 = self.multihead_attn(tgt, memory, memory)[0]
+        tgt = tgt + self.dropout2(tgt2)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        return tgt
+
+
+class TransformerDecoderLayerParallel(nn.Module):
+    def __init__(self, d_model_v, nhead, dim_feedforward=16, dropout=0):
+        super(TransformerDecoderLayerParallel, self).__init__()
+        self.self_attn = nn.MultiheadAttention(d_model_v, nhead, dropout=dropout)
+
+        self.multihead_attn = nn.MultiheadAttention(2 * d_model_v, nhead, dropout=dropout)
+
+        self.linear1 = nn.Linear(2 * d_model_v, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, 2 * d_model_v)
+
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(True)
+
+    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None,
+                memory_key_padding_mask=None):
+        tgt2 = self.self_attn(tgt, tgt, tgt)[0]
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = tgt.repeat(1, 1, 2)
+        tgt2 = self.multihead_attn(tgt, memory, memory)[0]
+        tgt = tgt + self.dropout2(tgt2)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        return tgt
+
+
+class TransformerDecoderLayerSeries(nn.Module):
+    def __init__(self, d_model_v, nhead, dim_feedforward=16, dropout=0):
+        super(TransformerDecoderLayerSeries, self).__init__()
+        self.self_attn = nn.MultiheadAttention(d_model_v, nhead, dropout=dropout)
+
+        self.multihead_attn = nn.MultiheadAttention(2 * d_model_v, nhead, dropout=dropout)
+
+        self.linear1 = nn.Linear(2 * d_model_v, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, 2 * d_model_v)
+
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(True)
+
+    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None,
+                memory_key_padding_mask=None):
+        tgt2 = self.self_attn(tgt, tgt, tgt)[0]
+        tgt = tgt + self.dropout1(tgt2)
+        tgt = tgt.repeat(1, 1, 2)
         tgt2 = self.multihead_attn(tgt, memory, memory)[0]
         tgt = tgt + self.dropout2(tgt2)
         tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))

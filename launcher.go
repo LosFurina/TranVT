@@ -77,12 +77,31 @@ func (a *Args) Set() {
 	op, _ := reader.ReadString('\n')
 	op = strings.TrimSpace(op)
 
-	fmt.Print("Dataset: ")
+	fmt.Println("Dataset: ")
+	fmt.Println("1.swat: ")
+	fmt.Println("2.wadi: ")
 	fmt.Scanln(&a.Dataset)
-
+	if a.Dataset == "1" {
+		a.Dataset = "swat"
+	} else if a.Dataset == "2" {
+		a.Dataset = "wadi"
+	} else {
+		panic("Invalid input")
+	}
 	fmt.Print("Model: ")
+	fmt.Print("1.TranVT: ")
+	fmt.Print("2.TranVTP: ")
+	fmt.Print("3.TranVTS: ")
 	fmt.Scanln(&a.Model)
-
+	if a.Model == "1" {
+		a.Model = "TranVT"
+	} else if a.Model == "2" {
+		a.Model = "TranVTP"
+	} else if a.Model == "3" {
+		a.Model = "TranVTS"
+	} else {
+		panic("Invalid input")
+	}
 	if op == "y" || op == "Y" {
 		fmt.Print("Lr: ")
 		fmt.Scanln(&a.Lr)
@@ -98,9 +117,25 @@ func (a *Args) Set() {
 
 		a.Test = "y"
 	} else if op == "n" || op == "N" {
-		fmt.Print("Experiment id: ")
-		fmt.Scanln(&a.ExpId)
-
+		fmt.Println("Experiment id: ")
+		expDirs, _ := os.ReadDir("./exp")
+		for i, expDir := range expDirs {
+			if expDir.IsDir() {
+				fmt.Printf("%d: %s\n", i+1, expDir.Name())
+			}
+		}
+		var choice int
+		fmt.Scanln(&choice)
+		var expID string
+		for i, expDir := range expDirs {
+			if expDir.IsDir() {
+				if i+1 == choice {
+					expID = expDir.Name()
+					break
+				}
+			}
+		}
+		a.ExpId = expID
 		fmt.Print("Top k: ")
 		fmt.Scanln(&a.TopK)
 
