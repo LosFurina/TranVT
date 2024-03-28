@@ -115,7 +115,7 @@ class Main(object):
                             type=str,
                             required=False,
                             default='TranVT',
-                            help="model name from [TranAD, TranVT]")
+                            help="model name from [TranVTV, TranVTP, TranVTS]")
         parser.add_argument('--lr',
                             metavar='-l',
                             type=float,
