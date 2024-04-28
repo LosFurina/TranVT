@@ -3,6 +3,7 @@ import numpy as np
 from src.spot import SPOT
 from sklearn.metrics import *
 
+
 def calc_point2point(predict, actual):
     """
     calculate f1 score by predict and actual.
@@ -55,15 +56,15 @@ def adjust_predicts(score, label,
     anomaly_count = 0
     for i in range(len(score)):
         if actual[i] and predict[i] and not anomaly_state:
-                anomaly_state = True
-                anomaly_count += 1
-                for j in range(i, 0, -1):
-                    if not actual[j]:
-                        break
-                    else:
-                        if not predict[j]:
-                            predict[j] = True
-                            latency += 1
+            anomaly_state = True
+            anomaly_count += 1
+            for j in range(i, 0, -1):
+                if not actual[j]:
+                    break
+                else:
+                    if not predict[j]:
+                        predict[j] = True
+                        latency += 1
         elif not actual[i]:
             anomaly_state = False
         if anomaly_state:
@@ -138,11 +139,11 @@ def pot_eval(init_score, score, label, q=1e-5, level=0.02):
         'NAB': [(0.991, 1), (0.99, 1)],
         'SMAP': [(0.98, 1), (0.98, 1)],
         'MSL': [(0.97, 1), (0.999, 1.04)],
-        'MSWaT': [(0.99, 1), (0.999, 1)],
+        'MSWaT': [(0.8, 1), (0.8, 1)],
         'MSDS': [(0.91, 1), (0.9, 1.04)],
         'MBA': [(0.87, 1), (0.93, 1.04)],
     }
-    lm = lm_d["SWaT"][1]
+    lm = lm_d["MSWaT"][1]
     lms = lm[0]
     while True:
         try:
@@ -150,8 +151,10 @@ def pot_eval(init_score, score, label, q=1e-5, level=0.02):
             s.fit(init_score, score)  # data import
             # TODO: level has been deleted from me
             s.initialize(level=lms, min_extrema=False, verbose=False)  # initialization step
-        except: lms = lms * 0.999
-        else: break
+        except:
+            lms = lms * 0.999
+        else:
+            break
     ret = s.run(dynamic=False)  # run
     # print(len(ret['alarms']))
     # print(len(ret['thresholds']))

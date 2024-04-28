@@ -1,1 +1,1 @@
-python ./test.py --dataset swat --model TranVTS --test --exp_id 2024-03-25_17-49 --top_k 5
+python ./train.py --dataset wadi --model TranVT --lr 0.001 --win_size 5 --batch_size 128 --epochs 20

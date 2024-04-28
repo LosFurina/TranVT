@@ -1,2 +1,4 @@
 /exp/*
 /*.csv
+./launcher.go
+./launcher.bat

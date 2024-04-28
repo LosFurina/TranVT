@@ -156,7 +156,7 @@ class Main(object):
         self.paser = parser.parse_args()
 
     def load_dataset(self):
-        if self.args.dataset == "swat":
+        if self.args.dataset in ["swat", "wadi"]:
             raw_train_path = os.path.join(self.args.dataset_path, "train.csv")
             raw_test_path = os.path.join(self.args.dataset_path, "test.csv")
 
@@ -292,12 +292,12 @@ class Main(object):
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 10)
+        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 30)
         # In order to calculate fast, but if your ram is not big enough, please decline the batch size
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
         dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
-        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 10)
+        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 30)
 
         dataloader = {
             "train": dataloader_train,
@@ -333,18 +333,28 @@ class Main(object):
         Main.plotter(ts_test, pred_1["test"], loss_1["test"], ts_label, self.args)
         # 4.1.Anomaly detection from TranAD=============================================================================
         self.logger.info("Anomaly Detection on SPOT algorithm")
-        df = pd.DataFrame()
+        df_loss = pd.DataFrame()
+        df_pred = pd.DataFrame()
         for i in range(loss_1["train"].shape[1]):
             loss_train, loss_test, label = loss_1["train"][:, i], loss_1["test"][:, i], ts_label
-            result, pred = pot_eval(loss_train, loss_test, label)
-            df = pd.concat([df, pd.DataFrame([result])], ignore_index=True)
+            pred_train, pred_test, label = pred_1["train"][:, i], pred_1["test"][:, i], ts_label
+            result_los, pred_los = pot_eval(loss_train, loss_test, label)
+            result_pre, pred_pre = pot_eval(pred_train, pred_test, label)
+            df_loss = pd.concat([df_loss, pd.DataFrame([result_los])], ignore_index=True)
+            df_pred = pd.concat([df_pred, pd.DataFrame([result_pre])], ignore_index=True)
 
         loss_train_mean, loss_test_mean = np.mean(loss_1["train"], axis=1), np.mean(loss_1["test"], axis=1)
 
         result, _ = pot_eval(loss_train_mean, loss_test_mean, ts_label)
         result.update(hit_att(loss_1["test"], ts_label))
         result.update(ndcg(loss_1["test"], ts_label))
-        self.logger.info(df)
+        self.logger.info("Anomaly Detection on SPOT algorithm loss pattern")
+        self.logger.info(df_loss)
+        df_loss.to_csv(os.path.join(f"{self.args.exp_path}", "loss-pattern.csv"), index=True)
+        self.logger.info("Anomaly Detection on SPOT algorithm pred pattern")
+        self.logger.info(df_pred)
+        df_pred.to_csv(os.path.join(f"{self.args.exp_path}", "pred-pattern.csv"), index=True)
+        self.logger.info("Anomaly Detection on SPOT algorithm loss mean pattern")
         self.logger.info(result)
         # 4.2.Anomaly detection from topK
         self.logger.info("Anomaly Detection on topK algorithm")
