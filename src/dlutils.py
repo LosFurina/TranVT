@@ -236,15 +236,15 @@ class TransformerEncoderLayer(nn.Module):
 class TransformerEncoderLayerParallel(nn.Module):  # TODO: Add parallel mode here
     def __init__(self, d_model_v, d_model_t, nhead, dim_feedforward=16, dropout=0):
         super(TransformerEncoderLayerParallel, self).__init__()
-        self.self_attn_v = nn.MultiheadAttention(d_model_v, nhead, dropout=dropout)
-        self.self_attn_t = nn.MultiheadAttention(d_model_t, d_model_t, dropout=dropout)
+        self.pos_encoding_t = PositionalEncoding(d_model=2 * d_model_t, dropout=0.1, max_len=d_model_v)
+        self.self_attn_v = nn.MultiheadAttention(2 * d_model_v, d_model_v, dropout=dropout)
+        self.self_attn_t = nn.MultiheadAttention(2 * d_model_t, d_model_t, dropout=dropout)
 
-        self.linear1_v = nn.Linear(d_model_v, dim_feedforward)
-        self.linear1_t = nn.Linear(d_model_t, dim_feedforward)
+        self.linear1_v = nn.Linear(2*d_model_v, dim_feedforward)
 
         self.dropout = nn.Dropout(dropout)
 
-        self.linear2 = nn.Linear(dim_feedforward, d_model_v)
+        self.linear2 = nn.Linear(dim_feedforward, 2*d_model_v)
 
         self.dropout1_v = nn.Dropout(dropout)
         self.dropout1_t = nn.Dropout(dropout)
@@ -257,33 +257,40 @@ class TransformerEncoderLayerParallel(nn.Module):  # TODO: Add parallel mode her
         split_tensors = torch.split(src, split_size_or_sections=src.shape[2] // 2, dim=2)
         src_v = split_tensors[0]
         src_t = torch.transpose(src_v, 0, 2)
-        pos_tensors = split_tensors[1]
+        pos_tensors_v = split_tensors[1]
+        src_t = torch.cat((src_t, torch.zeros_like(src_t)), dim=2)
+        src_v = torch.cat((src_v, pos_tensors_v), dim=2)
+        src_t = self.pos_encoding_t(src_t)
+
         src2_v = self.self_attn_v(src_v, src_v, src_v)[0]  # TODO: I guess to update code here
         src2_t = self.self_attn_t(src_t, src_t, src_t)[0]
 
         src_v = src_v + self.dropout1_v(src2_v)
         src_t = src_t + self.dropout1_t(src2_t)
 
-        src = src_v + torch.transpose(src_t, 0, 2)  # concat v and t
+        src_t = torch.split(src_t, split_size_or_sections=src_t.shape[2] // 2, dim=2)[0]
+        src_t = torch.transpose(src_t, 0, 2)
+        src_t = torch.cat((src_t, torch.zeros_like(src_t)), dim=2)
+
+        src = src_v + src_t  # concat v and t
 
         src2 = self.linear2(self.dropout(self.activation(self.linear1_v(src))))
         src = src + self.dropout2(src2)
-        concatenated_tensor = torch.cat((src, pos_tensors), dim=2)
-        return concatenated_tensor
+        return src
 
 
 class TransformerEncoderLayerSeries(nn.Module):  # TODO: Add parallel mode here
     def __init__(self, d_model_v, d_model_t, nhead, dim_feedforward=16, dropout=0):
         super(TransformerEncoderLayerSeries, self).__init__()
-        self.self_attn_v = nn.MultiheadAttention(d_model_v, nhead, dropout=dropout)
-        self.self_attn_t = nn.MultiheadAttention(d_model_t, d_model_t, dropout=dropout)
+        self.pos_encoding_t = PositionalEncoding(d_model=2 * d_model_t, dropout=0.1, max_len=d_model_v*2)
+        self.self_attn_v = nn.MultiheadAttention(2 * d_model_v, d_model_v, dropout=dropout)
+        self.self_attn_t = nn.MultiheadAttention(2 * d_model_t, d_model_t, dropout=dropout)
 
-        self.linear1_v = nn.Linear(d_model_v, dim_feedforward)
-        self.linear1_t = nn.Linear(d_model_t, dim_feedforward)
+        self.linear1 = nn.Linear(2*d_model_v, dim_feedforward)
 
         self.dropout = nn.Dropout(dropout)
 
-        self.linear2 = nn.Linear(dim_feedforward, d_model_v)
+        self.linear2 = nn.Linear(dim_feedforward, 2*d_model_v)
 
         self.dropout1_v = nn.Dropout(dropout)
         self.dropout1_t = nn.Dropout(dropout)
@@ -291,25 +298,23 @@ class TransformerEncoderLayerSeries(nn.Module):  # TODO: Add parallel mode here
         self.dropout2 = nn.Dropout(dropout)
 
         self.activation = nn.LeakyReLU(True)
+        self.emb = nn.Linear(2*d_model_t, d_model_t)
 
     def forward(self, src, src_mask=None, is_causal=None, src_key_padding_mask=None):
-        split_tensors = torch.split(src, split_size_or_sections=src.shape[2] // 2, dim=2)
-        src_v = split_tensors[0]
+        src2 = self.self_attn_v(src, src, src)[0]  # TODO: I guess to update code here
+        src_v = src + self.dropout(src2)
+        src_t = torch.transpose(src_v, 0, 2)
+        src_t = torch.cat((src_t, torch.zeros_like(src_t)), dim=2)
+        src_t = self.pos_encoding_t(src_t)
+        src_t = self.self_attn_t(src_t, src_t, src_t)[0]
+        src_t = src_t + self.dropout1_t(src_t)
 
-        pos_tensors = split_tensors[1]
-        src2_v = self.self_attn_v(src_v, src_v, src_v)[0]  # TODO: I guess to update code here
-        src_t = torch.transpose(src2_v, 0, 2)
-        src2_t = self.self_attn_t(src_t, src_t, src_t)[0]
+        src_t = self.emb(src_t)
+        src_t = torch.transpose(src_t, 0, 2)
 
-        src_v = src_v + self.dropout1_v(src2_v)
-        src_t = src_t + self.dropout1_t(src2_t)
-
-        src = src_v + torch.transpose(src_t, 0, 2)  # concat v and t
-
-        src2 = self.linear2(self.dropout(self.activation(self.linear1_v(src))))
-        src = src + self.dropout2(src2)
-        concatenated_tensor = torch.cat((src, pos_tensors), dim=2)
-        return concatenated_tensor
+        src3 = self.linear2(self.dropout(self.activation(self.linear1(src_t))))
+        src = src + self.dropout2(src3)
+        return src
 
 
 class TransformerDecoderLayer(nn.Module):

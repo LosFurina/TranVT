@@ -608,7 +608,7 @@ class TranVTP(nn.Module):
 
         self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
 
-        encoder_layers = TransformerEncoderLayerParallel(d_model_v=feats, d_model_t=args.win_size,  nhead=feats, dim_feedforward=16, dropout=0.1)
+        encoder_layers = TransformerEncoderLayerParallel(d_model_v=feats, d_model_t=args.win_size, nhead=feats, dim_feedforward=16, dropout=0.1)
         self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
 
         decoder_layers1 = TransformerDecoderLayerParallel(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
