@@ -34,8 +34,8 @@ class Main(object):
         self.paser = argparse.Namespace
         self.set_paser()
 
-        now = str(datetime.now().strftime("%Y-%m-%d_%H-%M"))
-        self.exp_config_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", now, "config.yaml")
+        now = str(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        self.exp_config_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", self.paser.save_pattern, now, "config.yaml")
 
         self.args = Args()
         self.args.run_time = now
@@ -44,7 +44,7 @@ class Main(object):
         self.args.dataset_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "dataset",
                                               self.args.dataset)
         self.args.config_path = self.exp_config_path
-        self.args.exp_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", now)
+        self.args.exp_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", self.paser.save_pattern, now)
 
         self.args.lr = self.paser.lr
         self.args.win_size = self.paser.win_size
@@ -56,7 +56,7 @@ class Main(object):
         if self.paser.test:
             if self.paser.exp_id is None:
                 raise Exception("No experiment id was given!")
-            config_path = os.path.join("exp", self.paser.exp_id, "config.yaml")
+            config_path = os.path.join("exp", self.paser.save_pattern ,self.paser.exp_id, "config.yaml")
             with open(config_path, "r") as f:
                 config = yaml.load(f, Loader=yaml.FullLoader)
             self.args.run_time = config.get("run_time")
@@ -64,6 +64,7 @@ class Main(object):
             self.args.model = config.get("model")
             self.args.dataset_path = config.get("dataset_path")
             self.args.config_path = config.get("config_path")
+            self.args.save_pattern = config.get("save_pattern")
             self.args.exp_path = config.get("exp_path")
             self.args.exp_id = self.paser.exp_id
 
@@ -104,6 +105,12 @@ class Main(object):
 
     def set_paser(self):
         parser = argparse.ArgumentParser(description='Time-Series Anomaly Detection on Variable and Time dimension')
+        parser.add_argument('--save_pattern',
+                            metavar='-sp',
+                            type=str,
+                            required=False,
+                            default='',
+                            help="the data folder path for experiment result saving")
         parser.add_argument('--dataset',
                             metavar='-d',
                             type=str,
@@ -206,7 +213,11 @@ class Main(object):
         pdf.close()
 
     @staticmethod
-    def plotter(y_true, y_pred, ascore, labels, args: Args):
+    def plotter(y_true, y_pred, ascore, labels, args: Args, threshold):
+        step = 100
+        star_index = 1000
+        end_index = 40000
+        y_true, y_pred, ascore, labels = y_true[star_index:end_index:step], y_pred[star_index:end_index:step], ascore[star_index:end_index:step], labels[star_index:end_index:step]
         pdf = PdfPages(os.path.join(args.exp_path, "plotter.pdf"))
         for dim in range(y_true.shape[1]):
             y_t, y_p, l, a_s = y_true[:, dim], y_pred[:, dim], labels, ascore[:, dim]
@@ -217,10 +228,11 @@ class Main(object):
             ax1.plot(y_p, '-', alpha=0.6, linewidth=0.3, label='Predicted')
             ax3 = ax1.twinx()
             ax3.plot(l, '--', linewidth=0.3, alpha=0.5)
-            ax3.fill_between(np.arange(l.shape[0]), l, color='blue', alpha=0.3)
-            if dim == 0:
-                ax1.legend(ncol=2, bbox_to_anchor=(0.6, 1.02))
+            ax3.fill_between(np.arange(l.shape[0]), l, color='red', alpha=0.2)
+
+            ax1.legend(ncol=2, bbox_to_anchor=(0.6, 1.02))
             ax2.plot(a_s, linewidth=0.2, color='g')
+            ax2.axhline(y=threshold, color='red', linestyle='--', label=f'threshold = {threshold}')
             ax2.set_xlabel('Timestamp')
             ax2.set_ylabel('Anomaly Score')
             pdf.savefig(fig)
@@ -285,19 +297,19 @@ class Main(object):
         ts_label = ts_label.to(device)
         self.logger.info(f"Load dataset [{self.args.dataset}] finished")
         # 2.Load model==================================================================================================
-        model, _, _, _ = load_model(self.args.exp_id, ts_train.shape[1], self.args)  # This 'args' is just an interface
+        model, _, _, _ = load_model(self.args.exp_id, self.paser.save_pattern, ts_train.shape[1], self.args)  # This 'args' is just an interface
         model = model.double().to(device)
         model.eval()
         self.logger.info(f"Load model [{self.args.model}] finished")
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 30)
-        # In order to calculate fast, but if your ram is not big enough, please decline the batch size
+        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 50)
+        # In order to calculate fast, but if your ram is not big enough, you could decline the batch size
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
         dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
-        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 30)
+        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 50)
 
         dataloader = {
             "train": dataloader_train,
@@ -330,38 +342,39 @@ class Main(object):
         ts_label = ts_label.detach().cpu().numpy()
         ts_test = ts_test.detach().cpu().numpy()
         ts_train = ts_train.detach().cpu().numpy()
-        Main.plotter(ts_test, pred_1["test"], loss_1["test"], ts_label, self.args)
-        # 4.1.Anomaly detection from TranAD=============================================================================
-        self.logger.info("Anomaly Detection on SPOT algorithm")
-        df_loss = pd.DataFrame()
-        df_pred = pd.DataFrame()
-        for i in range(loss_1["train"].shape[1]):
-            loss_train, loss_test, label = loss_1["train"][:, i], loss_1["test"][:, i], ts_label
-            pred_train, pred_test, label = pred_1["train"][:, i], pred_1["test"][:, i], ts_label
-            result_los, pred_los = pot_eval(loss_train, loss_test, label)
-            result_pre, pred_pre = pot_eval(pred_train, pred_test, label)
-            df_loss = pd.concat([df_loss, pd.DataFrame([result_los])], ignore_index=True)
-            df_pred = pd.concat([df_pred, pd.DataFrame([result_pre])], ignore_index=True)
-
-        loss_train_mean, loss_test_mean = np.mean(loss_1["train"], axis=1), np.mean(loss_1["test"], axis=1)
-
-        result, _ = pot_eval(loss_train_mean, loss_test_mean, ts_label)
-        result.update(hit_att(loss_1["test"], ts_label))
-        result.update(ndcg(loss_1["test"], ts_label))
-        self.logger.info("Anomaly Detection on SPOT algorithm loss pattern")
-        self.logger.info(df_loss)
-        df_loss.to_csv(os.path.join(f"{self.args.exp_path}", "loss-pattern.csv"), index=True)
-        self.logger.info("Anomaly Detection on SPOT algorithm pred pattern")
-        self.logger.info(df_pred)
-        df_pred.to_csv(os.path.join(f"{self.args.exp_path}", "pred-pattern.csv"), index=True)
-        self.logger.info("Anomaly Detection on SPOT algorithm loss mean pattern")
-        self.logger.info(result)
-        # 4.2.Anomaly detection from topK
-        self.logger.info("Anomaly Detection on topK algorithm")
+        # 4.Anomaly detection from TranAD===============================================================================
+        # self.logger.info("Anomaly Detection on SPOT algorithm")
+        # df_loss = pd.DataFrame()
+        # df_pred = pd.DataFrame()
+        # for i in range(loss_1["train"].shape[1]):
+        #     loss_train, loss_test, label = loss_1["train"][:, i], loss_1["test"][:, i], ts_label
+        #     pred_train, pred_test, label = pred_1["train"][:, i], pred_1["test"][:, i], ts_label
+        #     result_los, pred_los = pot_eval(loss_train, loss_test, label)
+        #     result_pre, pred_pre = pot_eval(pred_train, pred_test, label)
+        #     df_loss = pd.concat([df_loss, pd.DataFrame([result_los])], ignore_index=True)
+        #     df_pred = pd.concat([df_pred, pd.DataFrame([result_pre])], ignore_index=True)
+        #
+        # loss_train_mean, loss_test_mean = np.mean(loss_1["train"], axis=1), np.mean(loss_1["test"], axis=1)
+        #
+        # result, _ = pot_eval(loss_train_mean, loss_test_mean, ts_label)
+        # result.update(hit_att(loss_1["test"], ts_label))
+        # result.update(ndcg(loss_1["test"], ts_label))
+        # self.logger.info("Anomaly Detection on SPOT algorithm loss pattern")
+        # self.logger.info(df_loss)
+        # df_loss.to_csv(os.path.join(f"{self.args.exp_path}", "loss-pattern.csv"), index=True)
+        # self.logger.info("Anomaly Detection on SPOT algorithm pred pattern")
+        # self.logger.info(df_pred)
+        # df_pred.to_csv(os.path.join(f"{self.args.exp_path}", "pred-pattern.csv"), index=True)
+        # self.logger.info("Anomaly Detection on SPOT algorithm loss mean pattern")
+        # self.logger.info(result)
+        # 5.Anomaly detection from topK
+        self.logger.info("Anomaly Detection on Deviation algorithm")
         from src.topk import get_best_f1_score
         test_result = [pred_1["test"], ts_test, ts_label]
         val_result = [pred_1["train"], ts_train, ts_label]
-        get_best_f1_score(test_result, val_result, self.logger, top_k=self.args.top_k)
+        res = get_best_f1_score(test_result, val_result, self.logger, top_k=self.args.top_k)
+        # 6. Draw plot
+        Main.plotter(ts_test, pred_1["test"], res[7], ts_label, self.args, res[4])
 
 
 if __name__ == '__main__':

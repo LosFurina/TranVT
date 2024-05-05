@@ -19,8 +19,8 @@ def save_model(model, optimizer, scheduler, accuracy_list, args: Args, logger: l
     logger.info("Save checkpoint at {}".format(file_path))
 
 
-def load_model(exp_id: str, dim: int, args: Args):
-    checkpoint_path = os.path.join("exp", str(exp_id), "checkpoint_model.ckpt")
+def load_model(exp_id: str, save_pattern: str, dim: int, args: Args):
+    checkpoint_path = os.path.join("exp", save_pattern, str(exp_id), "checkpoint_model.ckpt")
     model = None
     if args.model == "TranVTV":
         model = src.models.TranVTV(dim, args)

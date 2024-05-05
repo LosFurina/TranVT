@@ -1,5 +1,5 @@
 /exp/*
-/*.csv
+*.csv
 ./launcher.go
 ./launcher.bat
 /dataset/*

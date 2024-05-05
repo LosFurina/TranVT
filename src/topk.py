@@ -1,5 +1,4 @@
 import logging
-
 import numpy
 import numpy as np
 import pandas as pd
@@ -122,7 +121,6 @@ def get_best_performance_data(total_err_scores, gt_labels, topk=1, offset=0, is_
         pred_labels[i] = int(pred_labels[i])
         gt_labels[i] = int(gt_labels[i])
 
-    f1 = f1_score(gt_labels, pred_labels)
     pre = precision_score(gt_labels, pred_labels)
     rec = recall_score(gt_labels, pred_labels)
     auc_score = roc_auc_score(gt_labels, total_topk_err_scores)
@@ -131,7 +129,8 @@ def get_best_performance_data(total_err_scores, gt_labels, topk=1, offset=0, is_
 
     # return max(final_topk_fmeas), pre, rec, auc_score, thresold
     # return f1, pre, rec, auc_score, thresold, total_topk_err_scores
-    return max(final_topk_fmeas), pre, rec, auc_score, thresold, my_f1, my_auc
+    return_score = np.repeat(np.expand_dims(total_topk_err_scores, axis=1), total_features, axis=1)
+    return max(final_topk_fmeas), pre, rec, auc_score, thresold, my_f1, my_auc, return_score
 
 
 def get_full_err_scores(test_result):
@@ -223,5 +222,5 @@ def get_best_f1_score(test_result, val_result, logger: logging.Logger, top_k=1):
     logger.info(f'auc:\t{info[3]}')
     logger.info(f'My auc:\t{info[6]}')
     logger.info(f"My F1 score:\t{info[5]}")
-    return [info[0], info[1], info[2], info[3]], info[5], test_labels, test_scores
+    return info[0], info[1], info[2], info[3], info[4], info[5], test_labels, info[7]
     # info: return f1, pre, rec, auc_score, thresold, total_topk_err_scores
