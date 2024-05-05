@@ -1,10 +1,14 @@
 import logging
+import os.path
+
 import numpy
 import numpy as np
 import pandas as pd
 
 from scipy.stats import rankdata, iqr, trim_mean
 from sklearn.metrics import precision_score, recall_score, roc_auc_score, f1_score, mean_squared_error
+
+import src.constant
 
 
 def get_err_median_and_iqr(predicted, groundtruth):
@@ -48,7 +52,7 @@ def get_err_scores(test_res, j, if_print, attack_index_list, norm_index_list):
     return smoothed_err_scores, 0, 0
 
 
-def eval_scores(scores, true_scores, th_steps, return_thresold=False):
+def eval_scores(scores, true_scores, th_steps, args: src.constant.Args, return_thresold=False):
     # print(scores)
     padding_list = [0] * (len(true_scores) - len(scores))
     # print(padding_list)
@@ -61,21 +65,32 @@ def eval_scores(scores, true_scores, th_steps, return_thresold=False):
     # th_steps = 500
     th_vals = np.array(range(th_steps)) * 1.0 / th_steps
     fmeas = [None] * th_steps
+    pre = [None] * th_steps
+    re = [None] * th_steps
     thresholds = [None] * th_steps
     for i in range(th_steps):
         cur_pred = scores_sorted > th_vals[i] * len(scores)
 
         fmeas[i] = f1_score(true_scores, cur_pred)
+        pre[i] = precision_score(true_scores, cur_pred)
+        re[i] = recall_score(true_scores, cur_pred)
 
         score_index = scores_sorted.tolist().index(int(th_vals[i] * len(scores) + 1))
         thresholds[i] = scores[score_index]
+    # 创建 DataFrame
+    data = {'Thresholds': th_vals,
+            'Precision': pre,
+            'Recall': re,
+            'F1 Score': fmeas}
 
+    df = pd.DataFrame(data)
+    df.to_csv(os.path.join(args.exp_path, "thresholds.csv"), index=False)
     if return_thresold:
         return fmeas, thresholds
     return fmeas
 
 
-def get_best_performance_data(total_err_scores, gt_labels, topk=1, offset=0, is_pearson=True):
+def get_best_performance_data(total_err_scores, gt_labels, args: src.constant.Args, topk=1, offset=0, is_pearson=True):
     #  total_err_scores： 平滑后的异常分数[[sen0],[sen1],...] @test
     total_features = total_err_scores.shape[0]
 
@@ -109,7 +124,7 @@ def get_best_performance_data(total_err_scores, gt_labels, topk=1, offset=0, is_
     # TODO: total score save hare
     # df_temp.to_csv('./test_result/totalscore.csv')
 
-    final_topk_fmeas, thresolds = eval_scores(total_topk_err_scores, gt_labels, 400, return_thresold=True)
+    final_topk_fmeas, thresolds = eval_scores(total_topk_err_scores, gt_labels, 400, args, return_thresold=True)
     # final_topk_fmeas 是以1/400粒度测试的阈值列表中，每个阈值对应的f1
     th_i = final_topk_fmeas.index(max(final_topk_fmeas))
     thresold = thresolds[th_i]
@@ -193,7 +208,7 @@ def get_full_err_scores(test_result):
     return all_scores
 
 
-def get_best_f1_score(test_result, val_result, logger: logging.Logger, top_k=1):
+def get_best_f1_score(test_result, val_result, logger: logging.Logger, args: src.constant.Args, top_k=1):
     # feature_num = len(test_result[0][0])
     # np_test_result = np.array(test_result)
     test_labels: numpy.ndarray = test_result[2]  # ground_truth_label from test dataset
@@ -205,7 +220,7 @@ def get_best_f1_score(test_result, val_result, logger: logging.Logger, top_k=1):
 
     # @TODO: change offset of topK here
     logger.info(f"Top k is now {top_k}")
-    top1_best_info = get_best_performance_data(test_scores, test_labels, topk=top_k, offset=0)
+    top1_best_info = get_best_performance_data(test_scores, test_labels, args, topk=top_k, offset=0)
     # top1_val_info = get_val_performance_data(test_scores, normal_scores, test_labels, topk=1)
 
     logger.info("Result from top_k algorithm")

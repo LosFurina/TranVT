@@ -8,6 +8,7 @@ class Args(object):
     def __init__(self):
         self.dataset = None
         self.model = None
+        self.is_recon = None
         self.run_time = None  # No need to change
 
         self.dataset_path = None  # No

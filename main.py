@@ -35,16 +35,19 @@ class Main(object):
         self.set_paser()
 
         now = str(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-        self.exp_config_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", self.paser.save_pattern, now, "config.yaml")
+        self.exp_config_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp",
+                                            self.paser.save_pattern, now, "config.yaml")
 
         self.args = Args()
         self.args.run_time = now
         self.args.dataset = self.paser.dataset
         self.args.model = self.paser.model
+        self.args.is_recon = self.paser.recon
         self.args.dataset_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "dataset",
                                               self.args.dataset)
         self.args.config_path = self.exp_config_path
-        self.args.exp_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp", self.paser.save_pattern, now)
+        self.args.exp_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp",
+                                          self.paser.save_pattern, now)
 
         self.args.lr = self.paser.lr
         self.args.win_size = self.paser.win_size
@@ -56,12 +59,13 @@ class Main(object):
         if self.paser.test:
             if self.paser.exp_id is None:
                 raise Exception("No experiment id was given!")
-            config_path = os.path.join("exp", self.paser.save_pattern ,self.paser.exp_id, "config.yaml")
+            config_path = os.path.join("exp", self.paser.save_pattern, self.paser.exp_id, "config.yaml")
             with open(config_path, "r") as f:
                 config = yaml.load(f, Loader=yaml.FullLoader)
             self.args.run_time = config.get("run_time")
             self.args.dataset = config.get("dataset")
             self.args.model = config.get("model")
+            self.is_recon = config.get("is_recon")
             self.args.dataset_path = config.get("dataset_path")
             self.args.config_path = config.get("config_path")
             self.args.save_pattern = config.get("save_pattern")
@@ -147,6 +151,9 @@ class Main(object):
                             required=False,
                             default=5,
                             help="epoch times")
+        parser.add_argument('--recon',
+                            action='store_true',
+                            help="pred or recon pattern")
         parser.add_argument('--test',
                             action='store_true',
                             help="test model")
@@ -217,7 +224,9 @@ class Main(object):
         step = 100
         star_index = 1000
         end_index = 40000
-        y_true, y_pred, ascore, labels = y_true[star_index:end_index:step], y_pred[star_index:end_index:step], ascore[star_index:end_index:step], labels[star_index:end_index:step]
+        y_true, y_pred, ascore, labels = y_true[star_index:end_index:step], y_pred[star_index:end_index:step], ascore[
+                                                                                                               star_index:end_index:step], labels[
+                                                                                                                                           star_index:end_index:step]
         pdf = PdfPages(os.path.join(args.exp_path, "plotter.pdf"))
         for dim in range(y_true.shape[1]):
             y_t, y_p, l, a_s = y_true[:, dim], y_pred[:, dim], labels, ascore[:, dim]
@@ -262,6 +271,10 @@ class Main(object):
         accuracy_list = []
         num_epochs = self.args.epochs
         model.train()
+        if self.args.is_recon:
+            self.logger.info("Training pattern is Recon")
+        else:
+            self.logger.info("Training pattern is Pred")
         for e in tqdm(list(range(1, num_epochs + 1))):
             feats = ts_train.shape[1]
             data_x = torch.DoubleTensor(ts_train_win).to(device)
@@ -271,9 +284,13 @@ class Main(object):
             l1s, l2s = [], []
 
             for d, _ in dataloader:
+                # TODO: Change here Pred and Reconstruction
                 local_bs = d.shape[0]
                 window = d.permute(1, 0, 2).to(device)
-                gd = window[-1, :, :].view(1, local_bs, feats)
+                if self.args.is_recon:
+                    gd = window
+                else:
+                    gd = window[-1, :, :].view(1, local_bs, feats)
                 z = model(window, gd)
                 l1 = ((1 / weight) * nn.functional.mse_loss(z[0], gd) +
                       (1 - 1 / weight) * nn.functional.mse_loss(z[1], gd))
@@ -297,19 +314,20 @@ class Main(object):
         ts_label = ts_label.to(device)
         self.logger.info(f"Load dataset [{self.args.dataset}] finished")
         # 2.Load model==================================================================================================
-        model, _, _, _ = load_model(self.args.exp_id, self.paser.save_pattern, ts_train.shape[1], self.args)  # This 'args' is just an interface
+        model, _, _, _ = load_model(self.args.exp_id, self.paser.save_pattern, ts_train.shape[1],
+                                    self.args)  # This 'args' is just an interface
         model = model.double().to(device)
         model.eval()
         self.logger.info(f"Load model [{self.args.model}] finished")
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 50)
+        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 500)
         # In order to calculate fast, but if your ram is not big enough, you could decline the batch size
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
         dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
-        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 50)
+        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 500)
 
         dataloader = {
             "train": dataloader_train,
@@ -372,7 +390,7 @@ class Main(object):
         from src.topk import get_best_f1_score
         test_result = [pred_1["test"], ts_test, ts_label]
         val_result = [pred_1["train"], ts_train, ts_label]
-        res = get_best_f1_score(test_result, val_result, self.logger, top_k=self.args.top_k)
+        res = get_best_f1_score(test_result, val_result, self.logger, self.args, top_k=self.args.top_k)
         # 6. Draw plot
         Main.plotter(ts_test, pred_1["test"], res[7], ts_label, self.args, res[4])
 
