@@ -10,6 +10,7 @@ import logging
 import torch
 import numpy as np
 import pandas as pd
+import random
 
 import src.models
 
@@ -151,9 +152,15 @@ class Main(object):
                             required=False,
                             default=5,
                             help="epoch times")
+        parser.add_argument('--train_ratio',
+                            metavar='-tr',
+                            type=float,
+                            required=False,
+                            help="Train ratio")
         parser.add_argument('--recon',
                             action='store_true',
                             help="pred or recon pattern")
+
         parser.add_argument('--test',
                             action='store_true',
                             help="test model")
@@ -169,7 +176,7 @@ class Main(object):
                             help="the top k score used in evaluation algorithm")
         self.paser = parser.parse_args()
 
-    def load_dataset(self):
+    def load_dataset(self, train_ratio=0.8):
         if self.args.dataset in ["swat", "wadi"]:
             raw_train_path = os.path.join(self.args.dataset_path, "train.csv")
             raw_test_path = os.path.join(self.args.dataset_path, "test.csv")
@@ -185,6 +192,13 @@ class Main(object):
             ts_train = torch.from_numpy(df_train.values)
             ts_test = torch.from_numpy(df_test.values)
             ts_labels = torch.from_numpy(df_labels.values)
+
+            # Randomly select training data
+            train_length = min(int(len(ts_train) * train_ratio), len(ts_train))
+            # Select a random starting point within the dataset
+            start_index = random.randint(0, len(ts_train) - train_length)
+            # Select the train_length rows starting from the random start_index
+            ts_train = ts_train[start_index:start_index + train_length]
 
             ts_train_win = Main.convert_to_windows(ts_train, self.args.win_size)
             ts_test_win = Main.convert_to_windows(ts_test, self.args.win_size)
@@ -248,9 +262,9 @@ class Main(object):
             plt.close()
         pdf.close()
 
-    def train(self):
+    def train(self, train_ratio=0.8):
         # 1.Load dataset================================================================================================
-        ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset()
+        ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset(train_ratio=train_ratio)
         self.logger.info("Load dataset finished")
         # 2. Load model=================================================================================================
         model = None

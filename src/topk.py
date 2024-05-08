@@ -4,9 +4,10 @@ import os.path
 import numpy
 import numpy as np
 import pandas as pd
+from matplotlib import pyplot as plt
 
 from scipy.stats import rankdata, iqr, trim_mean
-from sklearn.metrics import precision_score, recall_score, roc_auc_score, f1_score, mean_squared_error
+from sklearn.metrics import precision_score, recall_score, roc_auc_score, f1_score, roc_curve, auc
 
 import src.constant
 
@@ -145,6 +146,20 @@ def get_best_performance_data(total_err_scores, gt_labels, args: src.constant.Ar
     # return max(final_topk_fmeas), pre, rec, auc_score, thresold
     # return f1, pre, rec, auc_score, thresold, total_topk_err_scores
     return_score = np.repeat(np.expand_dims(total_topk_err_scores, axis=1), total_features, axis=1)
+    # 画图ROC
+    fpr, tpr, thresholds = roc_curve(gt_labels, pred_labels)
+    roc_auc = auc(fpr, tpr)
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title('Receiver Operating Characteristic')
+    plt.legend(loc="lower right")
+    save_path = os.path.join(args.exp_path, "ROC_AUC_Curve.png")
+    plt.savefig(save_path, dpi=300)
     return max(final_topk_fmeas), pre, rec, auc_score, thresold, my_f1, my_auc, return_score
 
 
