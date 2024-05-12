@@ -147,7 +147,7 @@ def get_best_performance_data(total_err_scores, gt_labels, args: src.constant.Ar
     # return f1, pre, rec, auc_score, thresold, total_topk_err_scores
     return_score = np.repeat(np.expand_dims(total_topk_err_scores, axis=1), total_features, axis=1)
     # 画图ROC
-    fpr, tpr, thresholds = roc_curve(gt_labels, pred_labels)
+    fpr, tpr, thresholds = roc_curve(gt_labels, total_topk_err_scores)
     roc_auc = auc(fpr, tpr)
     plt.figure()
     plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
