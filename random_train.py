@@ -6,15 +6,15 @@ from tqdm import tqdm
 class RandomTrain(object):
 
     def __init__(self):
-        self.dataset = "wadi"
+        self.dataset = "wadi_less"
         self.model = "TranVTV"
         self.lr = 0.0001
-        self.win_size = 50
-        self.batch_size = 32
+        self.win_size = 90
+        self.batch_size = 16
         self.epochs = 10
         self.recon = "recon"
-        self.train_ratio = 0.8
-        self.train_times = 2
+        self.train_ratio = 1
+        self.train_times = 1
         self.save_pattern = f"{self.dataset}_win{self.win_size}_{self.model}_{self.recon}_{self.train_ratio}"
 
     def train(self):

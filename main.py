@@ -18,6 +18,7 @@ from datetime import datetime
 from tqdm import tqdm
 from torch import nn
 from torch.utils.data import Dataset, DataLoader, TensorDataset
+from torch.utils.tensorboard import SummaryWriter
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib import pyplot as plt
 
@@ -86,6 +87,7 @@ class Main(object):
             with open(self.exp_config_path, "w") as f:
                 yaml.dump(self.args.__dict__, f, default_flow_style=False)
 
+        self.writer = None
         self.logger = None
         self.logger: logging.Logger
         self.set_logger()
@@ -107,6 +109,7 @@ class Main(object):
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         self.logger.addHandler(file_handler)
+        self.writer = SummaryWriter(os.path.join(self.args.exp_path, f"{now}_tensor_log"))
 
     def set_paser(self):
         parser = argparse.ArgumentParser(description='Time-Series Anomaly Detection on Variable and Time dimension')
@@ -177,7 +180,7 @@ class Main(object):
         self.paser = parser.parse_args()
 
     def load_dataset(self, train_ratio=0.8):
-        if self.args.dataset in ["swat", "wadi"]:
+        if self.args.dataset in ["swat", "wadi", "wadi_less"]:
             raw_train_path = os.path.join(self.args.dataset_path, "train.csv")
             raw_test_path = os.path.join(self.args.dataset_path, "test.csv")
 
@@ -297,7 +300,7 @@ class Main(object):
             weight = 1  # @TODO: Change weight distribution on two model's put out
             l1s, l2s = [], []
 
-            for d, _ in dataloader:
+            for batch_index, (d, _) in enumerate(dataloader):
                 # TODO: Change here Pred and Reconstruction
                 local_bs = d.shape[0]
                 window = d.permute(1, 0, 2).to(device)
@@ -310,6 +313,8 @@ class Main(object):
                       (1 - 1 / weight) * nn.functional.mse_loss(z[1], gd))
                 l1s.append(torch.mean(l1).item())
                 loss = torch.mean(l1)
+                self.writer: SummaryWriter
+                self.writer.add_scalar('Loss/train', loss.item(), e*dataloader.batch_size+batch_index)
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
