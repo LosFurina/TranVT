@@ -1,1 +1,0 @@
-python ./train.py --dataset wadi --model TranVTP --lr 0.001 --win_size 50 --batch_size 128 --epochs 20
