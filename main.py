@@ -292,6 +292,9 @@ class Main(object):
             self.logger.info("Training pattern is Recon")
         else:
             self.logger.info("Training pattern is Pred")
+
+        global global_step
+        global_step = 0
         for e in tqdm(list(range(1, num_epochs + 1))):
             feats = ts_train.shape[1]
             data_x = torch.DoubleTensor(ts_train_win).to(device)
@@ -300,7 +303,7 @@ class Main(object):
             weight = 1  # @TODO: Change weight distribution on two model's put out
             l1s, l2s = [], []
 
-            for batch_index, (d, _) in enumerate(dataloader):
+            for d, _ in dataloader:
                 # TODO: Change here Pred and Reconstruction
                 local_bs = d.shape[0]
                 window = d.permute(1, 0, 2).to(device)
@@ -314,7 +317,8 @@ class Main(object):
                 l1s.append(torch.mean(l1).item())
                 loss = torch.mean(l1)
                 self.writer: SummaryWriter
-                self.writer.add_scalar('Loss/train', loss.item(), e*dataloader.batch_size+batch_index)
+                self.writer.add_scalar('Loss/train', loss.item(), global_step=global_step)
+                global_step += 1
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
