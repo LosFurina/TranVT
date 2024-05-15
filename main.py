@@ -238,9 +238,9 @@ class Main(object):
 
     @staticmethod
     def plotter(y_true, y_pred, ascore, labels, args: Args, threshold):
-        step = 100
-        star_index = 1000
-        end_index = 40000
+        step = 20
+        star_index = 100
+        end_index = 17000
         y_true, y_pred, ascore, labels = y_true[star_index:end_index:step], y_pred[star_index:end_index:step], ascore[
                                                                                                                star_index:end_index:step], labels[
                                                                                                                                            star_index:end_index:step]
@@ -259,6 +259,7 @@ class Main(object):
             ax1.legend(ncol=2, bbox_to_anchor=(0.6, 1.02))
             ax2.plot(a_s, linewidth=0.2, color='g')
             ax2.axhline(y=threshold, color='red', linestyle='--', label=f'threshold = {threshold}')
+            ax2.set_ylim(0, 15)
             ax2.set_xlabel('Timestamp')
             ax2.set_ylabel('Anomaly Score')
             pdf.savefig(fig)
@@ -345,12 +346,13 @@ class Main(object):
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        dataloader_test = DataLoader(dataset_test, batch_size=ts_test.shape[0] // 500)
+        batch_size = 512
+        dataloader_test = DataLoader(dataset_test, batch_size=batch_size)
         # In order to calculate fast, but if your ram is not big enough, you could decline the batch size
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
         dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
-        dataloader_train = DataLoader(dataset_train, batch_size=ts_train.shape[0] // 500)
+        dataloader_train = DataLoader(dataset_train, batch_size=batch_size)
 
         dataloader = {
             "train": dataloader_train,
