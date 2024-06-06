@@ -181,8 +181,8 @@ class Main(object):
 
     def load_dataset(self, train_ratio=0.8):
         if self.args.dataset in ["swat", "wadi", "wadi_less", "tep"]:
-            raw_train_path = os.path.join(self.args.dataset_path, "train_ori.csv")
-            raw_test_path = os.path.join(self.args.dataset_path, "test_ori.csv")
+            raw_train_path = os.path.join(self.args.dataset_path, "train.csv")
+            raw_test_path = os.path.join(self.args.dataset_path, "test.csv")
 
             df_train = pd.read_csv(raw_train_path)
             df_test = pd.read_csv(raw_test_path)
