@@ -3,3 +3,4 @@
 ./launcher.go
 ./launcher.bat
 /dataset/*
+/te

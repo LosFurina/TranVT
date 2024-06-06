@@ -180,9 +180,9 @@ class Main(object):
         self.paser = parser.parse_args()
 
     def load_dataset(self, train_ratio=0.8):
-        if self.args.dataset in ["swat", "wadi", "wadi_less"]:
-            raw_train_path = os.path.join(self.args.dataset_path, "train.csv")
-            raw_test_path = os.path.join(self.args.dataset_path, "test.csv")
+        if self.args.dataset in ["swat", "wadi", "wadi_less", "tep"]:
+            raw_train_path = os.path.join(self.args.dataset_path, "train_ori.csv")
+            raw_test_path = os.path.join(self.args.dataset_path, "test_ori.csv")
 
             df_train = pd.read_csv(raw_train_path)
             df_test = pd.read_csv(raw_test_path)
@@ -346,7 +346,7 @@ class Main(object):
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        batch_size = 512
+        batch_size = 128
         dataloader_test = DataLoader(dataset_test, batch_size=batch_size)
         # In order to calculate fast, but if your ram is not big enough, you could decline the batch size
 

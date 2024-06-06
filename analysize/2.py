@@ -36,4 +36,5 @@ for i in range(len(index1)):
 plt.xticks(index_final, df_data["Method"].values, rotation=30)  # 设置x轴标签旋转30度
 plt.ylabel('时间 (秒)')  # 设置y轴标签
 plt.legend()
+plt.savefig("time.png", dpi=300)
 plt.show()
