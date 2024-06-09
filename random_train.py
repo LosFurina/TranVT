@@ -6,7 +6,7 @@ from tqdm import tqdm
 class RandomTrain(object):
 
     def __init__(self):
-        self.dataset = "tep"
+        self.dataset = "swat"
         self.model = "TranVTV"
         self.lr = 0.0001
         self.win_size = 20

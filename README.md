@@ -54,10 +54,5 @@ go build -ldflags "-linkmode external -extldflags '-static'" -o launcher.exe .\l
 ./launcher.sh
 ```
 
-# 3. Notice
-
-- This project is not finished, most functions has not come true
-- Some names of variables are not formal
-
-# 4. Author
+# 3. Author
 - The owner of github.com/LosFurina

@@ -35,30 +35,24 @@ class Main(object):
     def __init__(self):
         self.paser = argparse.Namespace
         self.set_paser()
-
         now = str(datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-        self.exp_config_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp",
-                                            self.paser.save_pattern, now, "config.yaml")
-
         self.args = Args()
         self.args.run_time = now
         self.args.dataset = self.paser.dataset
         self.args.model = self.paser.model
         self.args.is_recon = self.paser.recon
-        self.args.dataset_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "dataset",
-                                              self.args.dataset)
-        self.args.config_path = self.exp_config_path
-        self.args.exp_path = os.path.join(str(pathlib.Path(__file__).resolve().parents[0]), "exp",
-                                          self.paser.save_pattern, now)
-
+        self.args.dataset_path = os.path.join("dataset", self.args.dataset)
+        self.args.config_path = os.path.join("exp", self.paser.save_pattern, now, "config.yaml")
+        self.args.exp_path = os.path.join("exp", self.paser.save_pattern, now)
         self.args.lr = self.paser.lr
         self.args.win_size = self.paser.win_size
         self.args.batch_size = self.paser.batch_size
         self.args.epochs = self.paser.epochs
-
         self.args.top_k = self.paser.top_k
 
         if self.paser.test:
+            if self.paser.save_pattern is None:
+                raise Exception("No save pattern was given!")
             if self.paser.exp_id is None:
                 raise Exception("No experiment id was given!")
             config_path = os.path.join("exp", self.paser.save_pattern, self.paser.exp_id, "config.yaml")
@@ -73,18 +67,17 @@ class Main(object):
             self.args.save_pattern = config.get("save_pattern")
             self.args.exp_path = config.get("exp_path")
             self.args.exp_id = self.paser.exp_id
-
             self.args.lr = config.get("lr")
             self.args.win_size = config.get("win_size")
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
 
         else:
-            should_dir = str(pathlib.Path(self.exp_config_path).parent.resolve())
+            should_dir = str(pathlib.Path(self.args.config_path).parent.resolve())
             if not os.path.exists(should_dir):
                 os.makedirs(should_dir)
 
-            with open(self.exp_config_path, "w") as f:
+            with open(self.args.config_path, "w") as f:
                 yaml.dump(self.args.__dict__, f, default_flow_style=False)
 
         self.writer = None
