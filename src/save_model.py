@@ -28,6 +28,10 @@ def load_model(exp_id: str, save_pattern: str, dim: int, args: Args):
         model = src.models.TranVTP(dim, args)
     elif args.model == "TranVTS":
         model = src.models.TranVTS(dim, args)
+    elif args.model == "GTranVTV":
+        model = src.models.GTranVTV(dim, args)
+    else:
+        raise ValueError("Model type not supported")
     optimizer = torch.optim.AdamW(model.parameters(), lr=0)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=0, gamma=0)
     checkpoint = torch.load(checkpoint_path)

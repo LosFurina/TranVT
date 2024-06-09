@@ -46,6 +46,10 @@ class Main(object):
         self.args.exp_path = os.path.join("exp", self.paser.save_pattern, now)
         self.args.lr = self.paser.lr
         self.args.win_size = self.paser.win_size
+        self.args.g_dim = self.paser.g_dim
+        self.args.g_out_layer_num = self.paser.g_out_layer_num
+        self.args.g_out_layer_inter_dim = self.paser.g_out_layer_inter_dim
+        self.args.g_top_k = self.paser.g_top_k
         self.args.batch_size = self.paser.batch_size
         self.args.epochs = self.paser.epochs
         self.args.top_k = self.paser.top_k
@@ -69,6 +73,10 @@ class Main(object):
             self.args.exp_id = self.paser.exp_id
             self.args.lr = config.get("lr")
             self.args.win_size = config.get("win_size")
+            self.args.g_dim = config.get("g_dim")
+            self.args.g_out_layer_num = config.get("g_out_layer_num")
+            self.args.g_out_layer_inter_dim = config.get("g_out_layer_inter_dim")
+            self.args.g_top_k = config.get("g_top_k")
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
 
@@ -136,6 +144,30 @@ class Main(object):
                             required=False,
                             default=10,
                             help="windows size in splitting dataset to type of time series")
+        parser.add_argument('--g_dim',
+                            metavar='-gd',
+                            type=int,
+                            required=False,
+                            default=256,
+                            help="latent dimension of graph")
+        parser.add_argument('--g_out_layer_num',
+                            metavar='-gon',
+                            type=int,
+                            required=False,
+                            default=1,
+                            help="OutLayer number of graph")
+        parser.add_argument('--g_out_layer_inter_dim',
+                            metavar='-goin',
+                            type=int,
+                            required=False,
+                            default=256,
+                            help="OutLayer number of graph")
+        parser.add_argument('--g_top_k',
+                            metavar='-gtk',
+                            type=int,
+                            required=False,
+                            default=40,
+                            help="TopK of Graph layer")
         parser.add_argument('--batch_size',
                             metavar='-bs',
                             type=int,
@@ -233,7 +265,7 @@ class Main(object):
     def plotter(y_true, y_pred, ascore, labels, args: Args, threshold):
         step = 20
         star_index = 100
-        end_index = 17000
+        end_index = 30000
         y_true, y_pred, ascore, labels = y_true[star_index:end_index:step], y_pred[star_index:end_index:step], ascore[
                                                                                                                star_index:end_index:step], labels[
                                                                                                                                            star_index:end_index:step]
@@ -252,7 +284,7 @@ class Main(object):
             ax1.legend(ncol=2, bbox_to_anchor=(0.6, 1.02))
             ax2.plot(a_s, linewidth=0.2, color='g')
             ax2.axhline(y=threshold, color='red', linestyle='--', label=f'threshold = {threshold}')
-            ax2.set_ylim(0, 15)
+            ax2.set_ylim(0, int(threshold)*2)
             ax2.set_xlabel('Timestamp')
             ax2.set_ylabel('Anomaly Score')
             pdf.savefig(fig)
@@ -271,6 +303,10 @@ class Main(object):
             model = src.models.TranVTP(ts_train.shape[1], self.args).double().to(device)
         elif self.args.model == "TranVTS":
             model = src.models.TranVTS(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "GTranVTV":
+            model = src.models.GTranVTV(ts_train.shape[1], self.args).double().to(device)
+        else:
+            raise NotImplementedError("Unknown model")
 
         optimizer = torch.optim.AdamW(model.parameters(), lr=self.args.lr, weight_decay=1e-5)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 5, 0.9)  # dynamic learning rate
@@ -300,7 +336,7 @@ class Main(object):
             for d, _ in dataloader:
                 # TODO: Change here Pred and Reconstruction
                 local_bs = d.shape[0]
-                window = d.permute(1, 0, 2).to(device)
+                window = d.permute(1, 0, 2).to(device)  # (20, 32, 51)
                 if self.args.is_recon:
                     gd = window
                 else:

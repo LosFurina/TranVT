@@ -91,7 +91,7 @@ def eval_scores(scores, true_scores, th_steps, args: src.constant.Args, return_t
     return fmeas
 
 
-def get_best_performance_data(total_err_scores, gt_labels, args: src.constant.Args, topk=1, offset=0, is_pearson=True):
+def get_best_performance_data(total_err_scores, gt_labels, args: src.constant.Args, topk=1, offset=0, is_pearson=False):
     #  total_err_scores： 平滑后的异常分数[[sen0],[sen1],...] @test
     total_features = total_err_scores.shape[0]
 

@@ -22,3 +22,10 @@ class Args(object):
         self.epochs = None
 
         self.top_k = None
+
+        self.g_dim = None
+        self.g_out_layer_num = None
+        self.g_out_layer_inter_dim = None
+        self.g_top_k = None
+
+
