@@ -30,6 +30,10 @@ def load_model(exp_id: str, save_pattern: str, dim: int, args: Args):
         model = src.models.TranVTS(dim, args)
     elif args.model == "GTranVTV":
         model = src.models.GTranVTV(dim, args)
+    elif args.model == "GTranVTP":
+        model = src.models.GTranVTP(dim, args)
+    elif args.model == "GTranVTS":
+        model = src.models.GTranVTS(dim, args)
     else:
         raise ValueError("Model type not supported")
     optimizer = torch.optim.AdamW(model.parameters(), lr=0)

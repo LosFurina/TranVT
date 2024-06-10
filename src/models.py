@@ -755,3 +755,145 @@ class GTranVTV(nn.Module):
         c = (x1 - src) ** 2
         x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
         return x1, x2
+
+
+class GTranVTS(nn.Module):
+    """
+    The model of Graph Transformer on Variable and Temporal dimension via Series mode (GTranVTS)
+    """
+
+    def __init__(self, feats, args: Args):
+        super(GTranVTS, self).__init__()
+        self.name = args.model
+        self.lr = args.lr
+        self.batch = args.batch_size
+        self.n_feats = feats
+        self.n_window = args.win_size
+        self.n = self.n_feats * self.n_window
+        # ===================================================================================================Graph Layer
+        from .GDN import GDN
+        from .graph_utils import get_fc_graph_struc, get_feature_map, build_loc_net
+        feature_map = get_feature_map(dataset_path=os.path.join("dataset", args.dataset, "train.csv"))
+        fc_struc = get_fc_graph_struc(dataset_path=os.path.join("dataset", args.dataset, "train.csv"))
+        fc_edge_index = build_loc_net(struc=fc_struc, all_features=feature_map)
+        fc_edge_index = torch.tensor(fc_edge_index, dtype=torch.long)
+        edge_index_sets = [fc_edge_index]
+        # So strange, which is residual!!! But this list will be unpacked in next step, so we best keep the original format.
+        self.gnn = GDN(
+            edge_index_sets=edge_index_sets, node_num=len(feature_map),
+            input_dim=args.win_size,
+            dim=args.g_dim,
+            mlp_out_features=args.win_size,
+            out_layer_num=args.g_out_layer_num,
+            out_layer_inter_dim=args.g_out_layer_inter_dim,
+            topk=args.g_top_k
+        )
+        # =============================================================================================Transformer Layer
+        self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
+        encoder_layers = TransformerEncoderLayerSeries(d_model_v=feats, d_model_t=args.win_size, nhead=feats,
+                                                       dim_feedforward=16, dropout=0.1)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+
+        decoder_layers1 = TransformerDecoderLayerSeries(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
+
+        decoder_layers2 = TransformerDecoderLayerSeries(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
+
+        self.fcn = nn.Sequential(nn.Linear(2 * feats, feats), nn.Sigmoid())
+
+    def encode(self, src, c, tgt):
+        src = torch.cat((src, c), dim=2)  # In order to concatenate Positional encoding
+        src = src * math.sqrt(self.n_feats)  # Power 1/2
+        src = self.pos_encoder(src)
+        memory = self.transformer_encoder(src)
+        # tgt = tgt.repeat(1, 1, 2)  # expand twofold on 3rd dimension # TODO: why don't encode position?
+        return tgt, memory
+
+    def forward(self, src, tgt):
+        # ==============================================================================================================
+        # 1. GCN
+        src = src.permute(1, 2, 0)  # 32 51 20
+        src = self.gnn(src)
+        src = src.permute(2, 0, 1)
+        # ==============================================================================================================
+        # Phase 1 - Without anomaly scores
+        c = torch.zeros_like(src)
+        x1 = self.fcn(self.transformer_decoder1(*self.encode(src, c, tgt)))
+        # Phase 2 - With anomaly scores
+        c = (x1 - src) ** 2
+        x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
+        return x1, x2
+
+
+class GTranVTP(nn.Module):
+    """
+    The model of Graph Transformer on Variable and Temporal dimension via Parallel mode (GTranVTP)
+    """
+
+    def __init__(self, feats, args: Args):
+        super(GTranVTP, self).__init__()
+        self.name = args.model
+        self.lr = args.lr
+        self.batch = args.batch_size
+        self.n_feats = feats
+        self.n_window = args.win_size
+        self.n = self.n_feats * self.n_window
+        # ===================================================================================================Graph Layer
+        from .GDN import GDN
+        from .graph_utils import get_fc_graph_struc, get_feature_map, build_loc_net
+        feature_map = get_feature_map(dataset_path=os.path.join("dataset", args.dataset, "train.csv"))
+        fc_struc = get_fc_graph_struc(dataset_path=os.path.join("dataset", args.dataset, "train.csv"))
+        fc_edge_index = build_loc_net(struc=fc_struc, all_features=feature_map)
+        fc_edge_index = torch.tensor(fc_edge_index, dtype=torch.long)
+        edge_index_sets = [fc_edge_index]
+        # So strange, which is residual!!! But this list will be unpacked in next step, so we best keep the original format.
+        self.gnn = GDN(
+            edge_index_sets=edge_index_sets, node_num=len(feature_map),
+            input_dim=args.win_size,
+            dim=args.g_dim,
+            mlp_out_features=args.win_size,
+            out_layer_num=args.g_out_layer_num,
+            out_layer_inter_dim=args.g_out_layer_inter_dim,
+            topk=args.g_top_k
+        )
+        # =============================================================================================Transformer Layer
+        self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
+
+        encoder_layers = TransformerEncoderLayerParallel(d_model_v=feats, d_model_t=args.win_size, nhead=feats,
+                                                         dim_feedforward=16, dropout=0.1)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+
+        decoder_layers1 = TransformerDecoderLayerParallel(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
+
+        decoder_layers2 = TransformerDecoderLayerParallel(d_model_v=feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
+
+        self.fcn = nn.Sequential(nn.Linear(2 * feats, feats), nn.Sigmoid())
+
+    def encode(self, src, c, tgt):
+        src = torch.cat((src, c), dim=2)  # In order to concatenate Positional encoding
+
+        src = src * math.sqrt(self.n_feats)  # Power 1/2
+
+        src = self.pos_encoder(src)
+
+        memory = self.transformer_encoder(src)
+        # tgt = tgt.repeat(1, 1, 2)  # expand twofold on 3rd dimension # TODO: why don't encode position?
+        return tgt, memory
+
+    def forward(self, src, tgt):
+        # ==============================================================================================================
+        # 1. GCN
+        src = src.permute(1, 2, 0)  # 32 51 20
+        src = self.gnn(src)
+        src = src.permute(2, 0, 1)
+        # ==============================================================================================================
+        # Phase 1 - Without anomaly scores
+        c = torch.zeros_like(src)
+        x1 = self.fcn(self.transformer_decoder1(*self.encode(src, c, tgt)))
+        # Phase 2 - With anomaly scores
+        c = (x1 - src) ** 2
+        x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
+        return x1, x2

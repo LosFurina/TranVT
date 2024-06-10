@@ -305,6 +305,10 @@ class Main(object):
             model = src.models.TranVTS(ts_train.shape[1], self.args).double().to(device)
         elif self.args.model == "GTranVTV":
             model = src.models.GTranVTV(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "GTranVTP":
+            model = src.models.GTranVTP(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "GTranVTS":
+            model = src.models.GTranVTS(ts_train.shape[1], self.args).double().to(device)
         else:
             raise NotImplementedError("Unknown model")
 
