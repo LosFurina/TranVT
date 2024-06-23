@@ -1,10 +1,11 @@
 import torch.nn as nn
 import torch
-import torch.nn.functional as F
 from torch.autograd import Variable
 import math
 import numpy as np
 
+import src.models
+from src.GraphormerMHA import GraphormerMHA
 
 class ConvLSTMCell(nn.Module):
 
@@ -216,6 +217,7 @@ class PositionalEncoding(nn.Module):
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, d_model, nhead, dim_feedforward=16, dropout=0):
         super(TransformerEncoderLayer, self).__init__()
+
         self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
         self.linear1 = nn.Linear(d_model, dim_feedforward)
         self.dropout = nn.Dropout(dropout)
@@ -233,6 +235,29 @@ class TransformerEncoderLayer(nn.Module):
         return src
 
 
+class TransformerEncoderLayerGraph(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward=16, dropout=0):
+        super(TransformerEncoderLayerGraph, self).__init__()
+
+        self.self_attn = GraphormerMHA(d_model, nhead, dropout=dropout, self_attention=True)
+        self.linear1 = nn.Linear(d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(True)
+
+    def forward(self, src, adj, spd, edge_weight, src_mask=None, is_causal=None, src_key_padding_mask=None):
+        src = torch.transpose(src, 0, 2)
+        src2 = self.self_attn(src, src, src, adj, spd, edge_weight)[0]  # TODO: I guess to update code here
+        src = src + self.dropout1(src2)
+        src2 = self.linear2(self.dropout(self.activation(self.linear1(src))))
+        src = src + self.dropout2(src2)
+        src = torch.transpose(src, 0, 2)
+        return src
+
+
 class TransformerEncoderLayerParallel(nn.Module):  # TODO: Add parallel mode here
     def __init__(self, d_model_v, d_model_t, nhead, dim_feedforward=16, dropout=0):
         super(TransformerEncoderLayerParallel, self).__init__()
@@ -240,11 +265,11 @@ class TransformerEncoderLayerParallel(nn.Module):  # TODO: Add parallel mode her
         self.self_attn_v = nn.MultiheadAttention(2 * d_model_v, d_model_v, dropout=dropout)
         self.self_attn_t = nn.MultiheadAttention(2 * d_model_t, d_model_t, dropout=dropout)
 
-        self.linear1_v = nn.Linear(2*d_model_v, dim_feedforward)
+        self.linear1_v = nn.Linear(2 * d_model_v, dim_feedforward)
 
         self.dropout = nn.Dropout(dropout)
 
-        self.linear2 = nn.Linear(dim_feedforward, 2*d_model_v)
+        self.linear2 = nn.Linear(dim_feedforward, 2 * d_model_v)
 
         self.dropout1_v = nn.Dropout(dropout)
         self.dropout1_t = nn.Dropout(dropout)
@@ -282,15 +307,15 @@ class TransformerEncoderLayerParallel(nn.Module):  # TODO: Add parallel mode her
 class TransformerEncoderLayerSeries(nn.Module):  # TODO: Add parallel mode here
     def __init__(self, d_model_v, d_model_t, nhead, dim_feedforward=16, dropout=0):
         super(TransformerEncoderLayerSeries, self).__init__()
-        self.pos_encoding_t = PositionalEncoding(d_model=2 * d_model_t, dropout=0.1, max_len=d_model_v*2)
+        self.pos_encoding_t = PositionalEncoding(d_model=2 * d_model_t, dropout=0.1, max_len=d_model_v * 2)
         self.self_attn_v = nn.MultiheadAttention(2 * d_model_v, d_model_v, dropout=dropout)
         self.self_attn_t = nn.MultiheadAttention(2 * d_model_t, d_model_t, dropout=dropout)
 
-        self.linear1 = nn.Linear(2*d_model_v, dim_feedforward)
+        self.linear1 = nn.Linear(2 * d_model_v, dim_feedforward)
 
         self.dropout = nn.Dropout(dropout)
 
-        self.linear2 = nn.Linear(dim_feedforward, 2*d_model_v)
+        self.linear2 = nn.Linear(dim_feedforward, 2 * d_model_v)
 
         self.dropout1_v = nn.Dropout(dropout)
         self.dropout1_t = nn.Dropout(dropout)
@@ -298,7 +323,7 @@ class TransformerEncoderLayerSeries(nn.Module):  # TODO: Add parallel mode here
         self.dropout2 = nn.Dropout(dropout)
 
         self.activation = nn.LeakyReLU(True)
-        self.emb = nn.Linear(2*d_model_t, d_model_t)
+        self.emb = nn.Linear(2 * d_model_t, d_model_t)
 
     def forward(self, src, src_mask=None, is_causal=None, src_key_padding_mask=None):
         src2 = self.self_attn_v(src, src, src)[0]  # TODO: I guess to update code here
@@ -341,6 +366,37 @@ class TransformerDecoderLayer(nn.Module):
         tgt = tgt + self.dropout3(tgt2)
         return tgt
 
+
+class TransformerDecoderLayerGraph(nn.Module):
+    def __init__(self, d_model, nhead, dim_feedforward=16, dropout=0):
+        super(TransformerDecoderLayerGraph, self).__init__()
+        self.tgt_embedding = nn.Linear(in_features=d_model // d_model, out_features=d_model)
+        self.tgt_dembedding = nn.Linear(in_features=d_model, out_features=d_model // d_model)
+        self.self_attn = GraphormerMHA(d_model // d_model, nhead // nhead, dropout=dropout, self_attention=True)
+        self.multihead_attn = GraphormerMHA(d_model, nhead, dropout=dropout, self_attention=True)
+        self.linear1 = nn.Linear(d_model // d_model, dim_feedforward)
+        self.dropout = nn.Dropout(dropout)
+        self.linear2 = nn.Linear(dim_feedforward, d_model // d_model)
+        self.dropout1 = nn.Dropout(dropout)
+        self.dropout2 = nn.Dropout(dropout)
+        self.dropout3 = nn.Dropout(dropout)
+
+        self.activation = nn.LeakyReLU(True)
+
+    def forward(self, tgt, memory, adj, spd, edge_weight, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None,
+                memory_key_padding_mask=None):
+        memory = torch.transpose(memory, 0, 2)
+        tgt = torch.transpose(tgt, 0, 2)
+        tgt2 = self.self_attn(tgt, tgt, tgt, adj, spd, edge_weight)[0]
+        tgt = tgt + self.dropout1(tgt2)
+        tgt_adaptive = self.tgt_embedding(tgt)
+        tgt2 = self.multihead_attn(tgt_adaptive, memory, memory, adj, spd, edge_weight)[0]
+        tgt2 = self.tgt_dembedding(tgt2)
+        tgt = tgt + self.dropout2(tgt2)
+        tgt2 = self.linear2(self.dropout(self.activation(self.linear1(tgt))))
+        tgt = tgt + self.dropout3(tgt2)
+        tgt = torch.transpose(tgt, 0, 2)
+        return tgt
 
 class TransformerDecoderLayerParallel(nn.Module):
     def __init__(self, d_model_v, nhead, dim_feedforward=16, dropout=0):

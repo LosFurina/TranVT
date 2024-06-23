@@ -4,3 +4,4 @@
 ./launcher.bat
 /dataset/*
 /te
+*.pyc

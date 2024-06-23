@@ -50,6 +50,8 @@ class Main(object):
         self.args.g_out_layer_num = self.paser.g_out_layer_num
         self.args.g_out_layer_inter_dim = self.paser.g_out_layer_inter_dim
         self.args.g_top_k = self.paser.g_top_k
+        self.args.temp = self.paser.temp
+        self.args.temp_drop_frac = self.paser.temp_drop_frac
         self.args.batch_size = self.paser.batch_size
         self.args.epochs = self.paser.epochs
         self.args.top_k = self.paser.top_k
@@ -77,6 +79,8 @@ class Main(object):
             self.args.g_out_layer_num = config.get("g_out_layer_num")
             self.args.g_out_layer_inter_dim = config.get("g_out_layer_inter_dim")
             self.args.g_top_k = config.get("g_top_k")
+            self.args.temp = config.get("temp")
+            self.args.temp_drop_frac = config.get("temp_drop_frac")
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
 
@@ -168,6 +172,18 @@ class Main(object):
                             required=False,
                             default=40,
                             help="TopK of Graph layer")
+        parser.add_argument('--temp',
+                            metavar='-temp',
+                            type=float,
+                            required=False,
+                            default=1,
+                            help="Temperature of GumbelSoftmax")
+        parser.add_argument('--temp_drop_frac',
+                            metavar='-tdf',
+                            type=float,
+                            required=False,
+                            default=0.999,
+                            help="Temperature drop frac of GumbelSoftmax")
         parser.add_argument('--batch_size',
                             metavar='-bs',
                             type=int,
@@ -309,6 +325,8 @@ class Main(object):
             model = src.models.GTranVTP(ts_train.shape[1], self.args).double().to(device)
         elif self.args.model == "GTranVTS":
             model = src.models.GTranVTS(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "GumbelGraphormer":
+            model = src.models.GumbelGraphormer(ts_train.shape[1], self.args).double().to(device)
         else:
             raise NotImplementedError("Unknown model")
 
@@ -346,13 +364,16 @@ class Main(object):
                 else:
                     gd = window[-1, :, :].view(1, local_bs, feats)
                 z = model(window, gd)
-                l1 = ((1 / weight) * nn.functional.mse_loss(z[0], gd) +
-                      (1 - 1 / weight) * nn.functional.mse_loss(z[1], gd))
+                if not isinstance(z, tuple):
+                    l1 = nn.functional.mse_loss(z, gd)
+                else:
+                    l1 = nn.functional.mse_loss(z[0], gd)
                 l1s.append(torch.mean(l1).item())
                 loss = torch.mean(l1)
                 self.writer: SummaryWriter
                 self.writer.add_scalar('Loss/train', loss.item(), global_step=global_step)
                 global_step += 1
+                model.global_step += 1
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()

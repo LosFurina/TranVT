@@ -1,5 +1,6 @@
 import math
 import os
+from concurrent.futures import ThreadPoolExecutor
 
 import torch
 import torch.nn as nn
@@ -12,6 +13,8 @@ from dgl.nn.pytorch import GATConv
 # from dgl.nn import GATConv
 from torch.nn import TransformerEncoder
 from torch.nn import TransformerDecoder
+from torch.nn.parameter import Parameter
+from torch.nn import init
 
 from src.dlutils import *
 from src.constant import Args
@@ -897,3 +900,210 @@ class GTranVTP(nn.Module):
         c = (x1 - src) ** 2
         x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
         return x1, x2
+
+
+class GumbelGeneratorOld(nn.Module):
+    def __init__(self, sz=10, temp=10, temp_drop_frac=0.9999, use_cuda=False):
+        super(GumbelGeneratorOld, self).__init__()
+        self.sz = sz
+        self.gen_matrix = Parameter(torch.rand(sz, sz, 2))
+        self.edge_weight_matrix = Parameter(torch.rand(sz, sz))
+        self.temperature = temp
+        self.temp_drop_frac = temp_drop_frac
+        self.use_cuda = use_cuda
+
+    def drop_temp(self):
+        # drop temperature
+        self.temperature = self.temperature * self.temp_drop_frac
+
+    # output: a matrix
+    def sample_all(self, hard=False, epoch=1):
+        self.logp = self.gen_matrix.view(-1, 2)
+        out = self.gumbel_softmax(self.logp, self.temperature, hard)
+        if hard:
+            hh = torch.zeros(self.gen_matrix.size()[0] ** 2, 2)
+            for i in range(out.size()[0]):
+                hh[i, out[i]] = 1
+            out = hh
+        if self.use_cuda:
+            out = out.cuda()
+        out_matrix = out[:, 0].view(self.gen_matrix.size()[0], self.gen_matrix.size()[0])
+        # 1000 50
+        # if epoch > 998:
+        #     for i in range(out_matrix.size()[0]):
+        #         for j in range(out_matrix.size()[1]):
+        #             if out_matrix[i][j].item() == 1:
+        #                 out_matrix[j][i] = 1
+        return out_matrix
+
+    # output: the i-th column of matrix
+    def sample_adj_i(self, i, hard=False, sample_time=1):
+        self.logp = self.gen_matrix[:, i]
+        out = self.gumbel_softmax(self.logp, self.temperature, hard=hard)
+        if self.use_cuda:
+            out = out.cuda()
+        if hard:
+            out_matrix = out.float()
+        else:
+            out_matrix = out[:, 0]
+        return out_matrix
+
+    def get_temperature(self):
+        return self.temperature
+
+    def init(self, mean, var):
+        init.normal_(self.gen_matrix, mean=mean, std=var)
+
+    # ==================================================================================================================
+    def gumbel_sample(self, shape, eps=1e-20):
+        u = torch.rand(shape)
+        gumbel = - np.log(- np.log(u + eps) + eps)
+        if self.use_cuda:
+            gumbel = gumbel.cuda()
+        return gumbel
+
+    def gumbel_softmax_sample(self, logits, temperature):
+        """ Draw a sample from the Gumbel-Softmax distribution"""
+        y = logits + self.gumbel_sample(logits.size())
+        return torch.nn.functional.softmax(y / temperature, dim=1)
+
+    def gumbel_softmax(self, logits, temperature, hard=False):
+        """Sample from the Gumbel-Softmax distribution and optionally discretize.
+        Args:
+        logits: [batch_size, n_class] unnormalized log-probs
+        temperature: non-negative scalar
+        hard: if True, take argmax, but differentiate w.r.t. soft sample y
+        Returns:
+        [batch_size, n_class] sample from the Gumbel-Softmax distribution.
+        If hard=True, then the returned sample will be one-hot, otherwise it will
+        be a probabilitiy distribution that sums to 1 across classes
+        """
+        y = self.gumbel_softmax_sample(logits, temperature)
+        if hard:
+            k = logits.size()[-1]
+            y_hard = torch.max(y.data, 1)[1]
+            y = y_hard
+        return y
+
+    @staticmethod
+    def get_shortest_path_dis(adj: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the shortest path distance between every pair of nodes in the graph.
+        :param adj: 2D torch.Tensor, adjacency
+        :return: 2D torch.Tensor, shortest path distance matrix
+        """
+        num_vertices = adj.shape[0]
+
+        # 初始化距离矩阵
+        dist_matrix = adj.clone().float()
+
+        # 用无穷大初始化无边的地方
+        inf = float('inf')
+        dist_matrix[dist_matrix == 0] = inf
+        dist_matrix[torch.eye(num_vertices).bool()] = 0
+
+        # Floyd-Warshall算法
+        for k in range(num_vertices):
+            for i in range(num_vertices):
+                for j in range(num_vertices):
+                    if dist_matrix[i, j] > dist_matrix[i, k] + dist_matrix[k, j]:
+                        dist_matrix[i, j] = dist_matrix[i, k] + dist_matrix[k, j]
+
+        # 将无穷大转换回-1表示无路径
+        dist_matrix[dist_matrix == inf] = -1
+
+        return dist_matrix
+
+    @staticmethod
+    def initialize_distance_matrix(adj: torch.Tensor) -> torch.Tensor:
+        """
+        Initialize the distance matrix. If there is an edge between i and j,
+        the distance is the edge weight. Otherwise, the distance is infinity.
+        """
+        inf = float('inf')
+        distance_matrix = adj.clone().float()  # Make a copy of the adjacency matrix and ensure it's a float tensor
+        distance_matrix[adj == 0] = inf  # Set the distance to infinity where there is no edge
+        distance_matrix[torch.arange(adj.size(0)), torch.arange(adj.size(0))] = 0  # Distance to self is 0
+        return distance_matrix
+
+    @staticmethod
+    def floyd_warshall_worker(distance_matrix, k):
+        """
+        A worker function that updates the distance matrix for a given intermediate node k.
+        """
+        num_nodes = distance_matrix.shape[0]
+        for i in range(num_nodes):
+            for j in range(num_nodes):
+                if distance_matrix[i, j] > distance_matrix[i, k] + distance_matrix[k, j]:
+                    distance_matrix[i, j] = distance_matrix[i, k] + distance_matrix[k, j]
+        return distance_matrix
+
+    @staticmethod
+    def floyd_warshall_parallel(adj: torch.Tensor) -> torch.Tensor:
+        """
+        Compute the shortest path distances using the Floyd-Warshall algorithm in parallel.
+        """
+        distance_matrix = GumbelGeneratorOld.initialize_distance_matrix(adj)
+        num_nodes = distance_matrix.shape[0]
+
+        with ThreadPoolExecutor() as executor:
+            for k in range(num_nodes):
+                future = executor.submit(GumbelGeneratorOld.floyd_warshall_worker, distance_matrix, k)
+                distance_matrix = future.result()
+
+        distance_matrix[distance_matrix == float('inf')] = -1
+        return distance_matrix
+
+
+class GumbelGraphormer(nn.Module):
+    def __init__(self, feats, args: Args):
+        super(GumbelGraphormer, self).__init__()
+        self.name = 'GumbelGraphormer'
+        self.lr = args.lr
+        self.batch = args.batch_size
+        self.n_feats = feats
+        self.n_window = args.win_size
+        self.n = self.n_feats * self.n_window
+        self.global_step = 0
+
+        self.graph_learning = GumbelGeneratorOld(sz=self.n_feats, temp=args.temp, temp_drop_frac=args.temp_drop_frac, use_cuda=True)
+        self.src_norm = nn.LayerNorm(self.n_feats)
+        self.tgt_norm = nn.LayerNorm(self.n_feats)
+        self.pos_encoder = PositionalEncoding(feats, 0.1, self.n_window)
+        encoder_layers = TransformerEncoderLayerGraph(d_model=args.win_size, nhead=args.win_size, dim_feedforward=16, dropout=0.1)
+        # self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+        self.transformer_encoder = encoder_layers
+        decoder_layers = TransformerDecoderLayerGraph(d_model=args.win_size, nhead=args.win_size, dim_feedforward=16, dropout=0.1)
+        # self.transformer_decoder = TransformerDecoder(decoder_layers, 1)
+        self.transformer_decoder = decoder_layers
+        self.fcn = nn.Sigmoid()
+
+    def forward(self, src, tgt):
+        adj = self.graph_learning.sample_all(hard=True)  # get an adj
+        out_degree = torch.sum(adj, dim=1)
+        in_degree = torch.sum(adj, dim=0)
+
+        centrality = out_degree + in_degree
+
+        # Min-Max 归一化
+        centrality_min = centrality.min()
+        centrality_max = centrality.max()
+        centrality_norm = (centrality - centrality_min) / (centrality_max - centrality_min)
+
+        # 将归一化后的中心性应用到 src 和 tgt
+        centrality_src = src + centrality_norm
+        centrality_tgt = tgt + centrality_norm
+
+        src = centrality_src
+        tgt = centrality_tgt
+
+        src = src * math.sqrt(self.n_feats)
+        src = self.pos_encoder(src)
+
+        if self.global_step == 0 or self.global_step % 1000 == 0:
+            self.spd = self.graph_learning.floyd_warshall_parallel(adj=adj)
+        edge_weight = self.graph_learning.edge_weight_matrix
+        memory = self.transformer_encoder(src, adj, self.spd, edge_weight)
+        x = self.transformer_decoder(tgt, memory, adj, self.spd, edge_weight)
+        x = self.fcn(x)
+        return x

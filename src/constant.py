@@ -28,4 +28,7 @@ class Args(object):
         self.g_out_layer_inter_dim = None
         self.g_top_k = None
 
+        self.temp = None
+        self.temp_drop_frac = None
+
 
