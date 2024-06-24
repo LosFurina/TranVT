@@ -83,6 +83,7 @@ class Main(object):
             self.args.temp_drop_frac = config.get("temp_drop_frac")
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
+            self.args.is_test = True
 
         else:
             should_dir = str(pathlib.Path(self.args.config_path).parent.resolve())

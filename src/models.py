@@ -1059,6 +1059,7 @@ class GumbelGraphormer(nn.Module):
     def __init__(self, feats, args: Args):
         super(GumbelGraphormer, self).__init__()
         self.name = 'GumbelGraphormer'
+        self.args = args
         self.lr = args.lr
         self.batch = args.batch_size
         self.n_feats = feats
@@ -1100,7 +1101,10 @@ class GumbelGraphormer(nn.Module):
         src = src * math.sqrt(self.n_feats)
         src = self.pos_encoder(src)
 
-        if self.global_step == 0 or self.global_step % 1000 == 0:
+        if self.args.is_test:
+            self.spd = self.graph_learning.floyd_warshall_parallel(adj=adj)
+
+        if (self.global_step == 0 or self.global_step % 1000 == 0) and not self.args.is_test:
             self.spd = self.graph_learning.floyd_warshall_parallel(adj=adj)
         edge_weight = self.graph_learning.edge_weight_matrix
         memory = self.transformer_encoder(src, adj, self.spd, edge_weight)
