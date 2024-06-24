@@ -32,5 +32,6 @@ class Args(object):
         self.temp_drop_frac = None
 
         self.is_test = None
+        self.is_pearson = None
 
 

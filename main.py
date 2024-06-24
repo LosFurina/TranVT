@@ -56,6 +56,7 @@ class Main(object):
         self.args.epochs = self.paser.epochs
         self.args.top_k = self.paser.top_k
         self.args.is_test = False
+        self.args.is_pearson = self.paser.pearson
 
         if self.paser.test:
             if self.paser.save_pattern is None:
@@ -85,6 +86,7 @@ class Main(object):
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
             self.args.is_test = True
+            self.args.is_pearson = config.get("is_pearson")
 
         else:
             should_dir = str(pathlib.Path(self.args.config_path).parent.resolve())
@@ -206,7 +208,9 @@ class Main(object):
         parser.add_argument('--recon',
                             action='store_true',
                             help="pred or recon pattern")
-
+        parser.add_argument('--pearson',
+                            action='store_true',
+                            help="is pearson")
         parser.add_argument('--test',
                             action='store_true',
                             help="test model")
@@ -302,7 +306,7 @@ class Main(object):
             ax1.legend(ncol=2, bbox_to_anchor=(0.6, 1.02))
             ax2.plot(a_s, linewidth=0.2, color='g')
             ax2.axhline(y=threshold, color='red', linestyle='--', label=f'threshold = {threshold}')
-            ax2.set_ylim(0, int(threshold)*2)
+            ax2.set_ylim(0, int(threshold) * 2)
             ax2.set_xlabel('Timestamp')
             ax2.set_ylabel('Anomaly Score')
             pdf.savefig(fig)

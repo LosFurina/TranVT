@@ -235,7 +235,7 @@ def get_best_f1_score(test_result, val_result, logger: logging.Logger, args: src
 
     # @TODO: change offset of topK here
     logger.info(f"Top k is now {top_k}")
-    top1_best_info = get_best_performance_data(test_scores, test_labels, args, topk=top_k, offset=0)
+    top1_best_info = get_best_performance_data(test_scores, test_labels, args, topk=top_k, offset=0, is_pearson=args.is_pearson)
     # top1_val_info = get_val_performance_data(test_scores, normal_scores, test_labels, topk=1)
 
     logger.info("Result from top_k algorithm")

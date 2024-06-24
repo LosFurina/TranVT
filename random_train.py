@@ -18,10 +18,10 @@ class RandomTrain(object):
         self.temp_drop_frac = 0.99
         self.batch_size = 32
         self.epochs = 5
-        self.recon = None
+        self.is_recon = False
         self.train_ratio = 1
         self.train_times = 1
-        recon = "recon" if self.recon is not None else "pred"
+        recon = "recon" if self.is_recon else "pred"
         self.save_pattern = f"{self.dataset}_win{self.win_size}_{self.model}_{recon}_{self.train_ratio}"
 
     def train(self):
@@ -40,13 +40,12 @@ class RandomTrain(object):
         --epochs {self.epochs} \
         --train_ratio {self.train_ratio}"
 
-        if self.recon is None:
-            cmd = cmd
-            print("CMD:", cmd)
-        else:
+        if self.is_recon:
             cmd = cmd + f" --recon"
-            print("CMD:", cmd)
+        else:
+            cmd = cmd
 
+        print(cmd)
         pbar = tqdm(range(self.train_times), desc="Training progress")
         for i in pbar:
             pbar.set_description(desc=f"Training iteration {i}")
