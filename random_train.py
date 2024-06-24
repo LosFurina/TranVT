@@ -6,10 +6,10 @@ from tqdm import tqdm
 class RandomTrain(object):
 
     def __init__(self):
-        self.dataset = "swat"
+        self.dataset = "wadi_less"
         self.model = "GumbelGraphormer"
         self.lr = 0.0001
-        self.win_size = 20
+        self.win_size = 90
         self.g_dim = 64
         self.g_out_layer_num = 1
         self.g_out_layer_inter_dim = 256

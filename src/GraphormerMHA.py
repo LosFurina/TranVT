@@ -173,7 +173,7 @@ class GraphormerMHA(nn.Module):
         from .models import GumbelGeneratorOld
         graph_spatial_enc = spd  # TODO: Here, project will compute SPD twice, which is unnecessary and time-consuming, respectively in Transformer encoder and decoder.
         graph_edge_enc = edge_weight * graph_spatial_enc
-        attn_weights = attn_weights + graph_spatial_enc + graph_edge_enc
+        attn_weights = attn_weights + graph_spatial_enc
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
