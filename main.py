@@ -86,7 +86,7 @@ class Main(object):
             self.args.batch_size = config.get("batch_size")
             self.args.epochs = config.get("epochs")
             self.args.is_test = True
-            self.args.is_pearson = config.get("is_pearson")
+            self.args.is_pearson = self.paser.pearson
 
         else:
             should_dir = str(pathlib.Path(self.args.config_path).parent.resolve())
