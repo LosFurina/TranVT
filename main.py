@@ -55,6 +55,7 @@ class Main(object):
         self.args.batch_size = self.paser.batch_size
         self.args.epochs = self.paser.epochs
         self.args.top_k = self.paser.top_k
+        self.args.is_test = False
 
         if self.paser.test:
             if self.paser.save_pattern is None:

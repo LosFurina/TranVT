@@ -31,4 +31,6 @@ class Args(object):
         self.temp = None
         self.temp_drop_frac = None
 
+        self.is_test = None
+
 

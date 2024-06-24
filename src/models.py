@@ -1066,6 +1066,7 @@ class GumbelGraphormer(nn.Module):
         self.n_window = args.win_size
         self.n = self.n_feats * self.n_window
         self.global_step = 0
+        self.spd = None
 
         self.graph_learning = GumbelGeneratorOld(sz=self.n_feats, temp=args.temp, temp_drop_frac=args.temp_drop_frac, use_cuda=True)
         self.src_norm = nn.LayerNorm(self.n_feats)
@@ -1101,7 +1102,7 @@ class GumbelGraphormer(nn.Module):
         src = src * math.sqrt(self.n_feats)
         src = self.pos_encoder(src)
 
-        if self.args.is_test:
+        if self.args.is_test and self.spd is None:
             self.spd = self.graph_learning.floyd_warshall_parallel(adj=adj)
 
         if (self.global_step == 0 or self.global_step % 1000 == 0) and not self.args.is_test:
