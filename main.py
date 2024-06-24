@@ -307,6 +307,22 @@ class Main(object):
             plt.close()
         pdf.close()
 
+    def get_available_memory(self, device):
+        if device.type == 'cuda':
+            total_memory = torch.cuda.get_device_properties(device).total_memory
+            reserved_memory = torch.cuda.memory_reserved(device)
+            allocated_memory = torch.cuda.memory_allocated(device)
+            available_memory = total_memory - (reserved_memory + allocated_memory)
+        else:
+            import psutil
+            available_memory = psutil.virtual_memory().available
+        return available_memory
+
+    def calculate_optimal_batch_size(self, available_memory, element_size, safety_factor=0.8):
+        # safety_factor is used to avoid using up all memory
+        max_elements = int(available_memory * safety_factor / element_size)
+        return max(1, max_elements)  # Ensure at least 1
+
     def train(self, train_ratio=0.8):
         # 1.Load dataset================================================================================================
         ts_train, ts_test, ts_label, ts_train_win, ts_test_win = self.load_dataset(train_ratio=train_ratio)
@@ -400,9 +416,10 @@ class Main(object):
         # 3.Test========================================================================================================
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
-        batch_size = 128
+        available_memory = self.get_available_memory(device)
+        element_size = data_test.element_size() * data_test.numel()
+        batch_size = self.calculate_optimal_batch_size(available_memory, element_size)
         dataloader_test = DataLoader(dataset_test, batch_size=batch_size)
-        # In order to calculate fast, but if your ram is not big enough, you could decline the batch size
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
         dataset_train = TensorDataset(data_train, data_train)  # @TODO: reconstruction methodology
@@ -419,6 +436,8 @@ class Main(object):
             loss_1 = {}
             self.logger.info("Test dataset is going through per-trained model")
             for k, v_da in dataloader.items():
+                if k == "train":
+                    continue
                 # v_da: value of dataloader
                 output1 = []
                 # output2 = []
@@ -468,8 +487,8 @@ class Main(object):
         self.logger.info("Anomaly Detection on Deviation algorithm")
         from src.topk import get_best_f1_score
         test_result = [pred_1["test"], ts_test, ts_label]
-        val_result = [pred_1["train"], ts_train, ts_label]
-        res = get_best_f1_score(test_result, val_result, self.logger, self.args, top_k=self.args.top_k)
+        # val_result = [pred_1["train"], ts_train, ts_label]
+        res = get_best_f1_score(test_result, test_result, self.logger, self.args, top_k=self.args.top_k)
         # 6. Draw plot
         Main.plotter(ts_test, pred_1["test"], res[7], ts_label, self.args, res[4])
 
