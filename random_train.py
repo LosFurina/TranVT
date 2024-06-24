@@ -21,7 +21,7 @@ class RandomTrain(object):
         self.recon = None
         self.train_ratio = 1
         self.train_times = 1
-        recon = "recon" if self.recon is None else "pred"
+        recon = "recon" if self.recon is not None else "pred"
         self.save_pattern = f"{self.dataset}_win{self.win_size}_{self.model}_{recon}_{self.train_ratio}"
 
     def train(self):
