@@ -419,6 +419,9 @@ class Main(object):
         available_memory = self.get_available_memory(device)
         element_size = data_test.element_size() * data_test.numel()
         batch_size = self.calculate_optimal_batch_size(available_memory, element_size)
+        self.logger.info(f"Available memory is {available_memory}")
+        self.logger.info(f"Element size is {element_size}")
+        self.logger.infof(f"Optimized batch size is {batch_size}")
         dataloader_test = DataLoader(dataset_test, batch_size=batch_size)
 
         data_train = torch.DoubleTensor(ts_train_win).to(device)
