@@ -417,9 +417,9 @@ class Main(object):
         data_test = torch.DoubleTensor(ts_test_win).to(device)
         dataset_test = TensorDataset(data_test, data_test)  # @TODO: reconstruction methodology
         available_memory = self.get_available_memory(device)
-        example_tensor = torch.DoubleTensor(ts_train_win[0:1]).to(device)
+        example_tensor = torch.DoubleTensor(ts_train_win[0]).to(device)
         element_size = example_tensor.element_size() * example_tensor.numel()
-        batch_size = self.calculate_optimal_batch_size(available_memory, element_size)
+        batch_size = self.calculate_optimal_batch_size(available_memory, element_size) // 500
         self.logger.info(f"Available memory is {available_memory}")
         self.logger.info(f"Element size is {element_size}")
         self.logger.info(f"Optimized batch size is {batch_size}")
