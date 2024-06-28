@@ -7,7 +7,7 @@ class RandomTrain(object):
 
     def __init__(self):
         self.dataset = "wadi_less"
-        self.model = "GumbelGraphormer"
+        self.model = "GumbelTranVTV"
         self.lr = 0.0001
         self.win_size = 90
         self.g_dim = 64
@@ -17,7 +17,7 @@ class RandomTrain(object):
         self.temp = 1
         self.temp_drop_frac = 0.99
         self.batch_size = 32
-        self.epochs = 5
+        self.epochs = 20
         self.is_recon = False
         self.train_ratio = 1
         self.train_times = 1

@@ -1136,13 +1136,13 @@ class GumbelTranVTV(nn.Module):
         self.graph_learning = GumbelGeneratorOld(sz=self.n_feats, temp=args.temp, temp_drop_frac=args.temp_drop_frac,
                                                  use_cuda=True)
         self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
-        encoder_layers = TransformerEncoderLayerGraph(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        encoder_layers = TransformerEncoderLayer(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
         self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
         # self.transformer_encoder = encoder_layers
-        decoder_layers1 = TransformerDecoderLayerGraph(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        decoder_layers1 = TransformerDecoderLayer(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
         self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
         # self.transformer_decoder1 = decoder_layers1
-        decoder_layers2 = TransformerDecoderLayerGraph(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        decoder_layers2 = TransformerDecoderLayer(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
         self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
         # self.transformer_decoder2 = decoder_layers2
         self.fcn = nn.Sequential(nn.Linear(3 * feats, feats), nn.Sigmoid())
