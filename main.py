@@ -349,6 +349,8 @@ class Main(object):
             model = src.models.GTranVTS(ts_train.shape[1], self.args).double().to(device)
         elif self.args.model == "GumbelGraphormer":
             model = src.models.GumbelGraphormer(ts_train.shape[1], self.args).double().to(device)
+        elif self.args.model == "GumbelTranVTV":
+            model = src.models.GumbelTranVTV(ts_train.shape[1], self.args).double().to(device)
         else:
             raise NotImplementedError("Unknown model")
 

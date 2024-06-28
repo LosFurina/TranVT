@@ -557,7 +557,7 @@ class TranAD(nn.Module):
 
 class TranVTV(nn.Module):
     """
-    TranVTP model: Transformer on Variable and Time dimension via Vanilla mode (TranVTP)
+    TranVTV model: Transformer on Variable and Time dimension via Vanilla mode (TranVTV)
     """
 
     def __init__(self, feats, args: Args):
@@ -1068,14 +1068,17 @@ class GumbelGraphormer(nn.Module):
         self.global_step = 0
         self.spd = None
 
-        self.graph_learning = GumbelGeneratorOld(sz=self.n_feats, temp=args.temp, temp_drop_frac=args.temp_drop_frac, use_cuda=True)
+        self.graph_learning = GumbelGeneratorOld(sz=self.n_feats, temp=args.temp, temp_drop_frac=args.temp_drop_frac,
+                                                 use_cuda=True)
         self.src_norm = nn.LayerNorm(self.n_feats)
         self.tgt_norm = nn.LayerNorm(self.n_feats)
         self.pos_encoder = PositionalEncoding(feats, 0.1, self.n_window)
-        encoder_layers = TransformerEncoderLayerGraph(d_model=args.win_size, nhead=args.win_size, dim_feedforward=16, dropout=0.1)
+        encoder_layers = TransformerEncoderLayerGraph(d_model=args.win_size, nhead=args.win_size, dim_feedforward=16,
+                                                      dropout=0.1)
         # self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
         self.transformer_encoder = encoder_layers
-        decoder_layers = TransformerDecoderLayerGraph(d_model=args.win_size, nhead=args.win_size, dim_feedforward=16, dropout=0.1)
+        decoder_layers = TransformerDecoderLayerGraph(d_model=args.win_size, nhead=args.win_size, dim_feedforward=16,
+                                                      dropout=0.1)
         # self.transformer_decoder = TransformerDecoder(decoder_layers, 1)
         self.transformer_decoder = decoder_layers
         self.fcn = nn.Sigmoid()
@@ -1112,3 +1115,75 @@ class GumbelGraphormer(nn.Module):
         x = self.transformer_decoder(tgt, memory, adj, self.spd, edge_weight)
         x = self.fcn(x)
         return x
+
+
+class GumbelTranVTV(nn.Module):
+    """
+    GumbelTranVTV model: Transformer on Variable and Time dimension via Vanilla mode (TranVTV)
+    """
+
+    def __init__(self, feats, args: Args):
+        super(GumbelTranVTV, self).__init__()
+        self.name = args.model
+        self.lr = args.lr
+        self.batch = args.batch_size
+        self.n_feats = feats
+        self.n_window = args.win_size
+        self.n = self.n_feats * self.n_window
+        self.global_step = 0
+        self.spd = None
+
+        self.graph_learning = GumbelGeneratorOld(sz=self.n_feats, temp=args.temp, temp_drop_frac=args.temp_drop_frac,
+                                                 use_cuda=True)
+        self.pos_encoder = PositionalEncoding(2 * feats, 0.1, self.n_window)
+        encoder_layers = TransformerEncoderLayerGraph(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_encoder = TransformerEncoder(encoder_layers, 1)
+        # self.transformer_encoder = encoder_layers
+        decoder_layers1 = TransformerDecoderLayerGraph(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder1 = TransformerDecoder(decoder_layers1, 1)
+        # self.transformer_decoder1 = decoder_layers1
+        decoder_layers2 = TransformerDecoderLayerGraph(d_model=3 * feats, nhead=feats, dim_feedforward=16, dropout=0.1)
+        self.transformer_decoder2 = TransformerDecoder(decoder_layers2, 1)
+        # self.transformer_decoder2 = decoder_layers2
+        self.fcn = nn.Sequential(nn.Linear(3 * feats, feats), nn.Sigmoid())
+
+    def encode(self, src, c, tgt):
+        src = torch.cat((src, c), dim=2)  # In order to concatenate Positional encoding
+        src = src * math.sqrt(self.n_feats)  # Power 1/2
+        src = self.pos_encoder(src)
+
+        adj = self.graph_learning.sample_all(hard=True)  # get an adj
+        out_degree = torch.sum(adj, dim=1)
+        in_degree = torch.sum(adj, dim=0)
+
+        centrality = out_degree + in_degree
+
+        # Min-Max 归一化
+        centrality_min = centrality.min()
+        centrality_max = centrality.max()
+        centrality_norm = (centrality - centrality_min) / (centrality_max - centrality_min)
+
+        centrality_norm_expanded = centrality_norm.unsqueeze(0).unsqueeze(0)
+
+        # 广播 `centrality_norm_expanded`
+        centrality_norm_src = centrality_norm_expanded.expand(src.shape[0], src.shape[1], centrality_norm.shape[0])
+        centrality_norm_tgt = centrality_norm_expanded.expand(tgt.shape[0], tgt.shape[1], centrality_norm.shape[0])
+
+        # 拼接 `src` 和 `centrality_norm_broadcasted`
+        centrality_src = torch.cat((src, centrality_norm_src), dim=2)
+        tgt = tgt.repeat(1, 1, 2)  # expand twofold on 3rd dimension
+        centrality_tgt = torch.cat((tgt, centrality_norm_tgt), dim=2)
+        # 将归一化后的中心性应用到 src 和 tgt
+
+        memory = self.transformer_encoder(centrality_src)
+
+        return centrality_tgt, memory
+
+    def forward(self, src, tgt):
+        # Phase 1 - Without anomaly scores
+        c = torch.zeros_like(src)
+        x1 = self.fcn(self.transformer_decoder1(*self.encode(src, c, tgt)))
+        # Phase 2 - With anomaly scores
+        c = (x1 - src) ** 2
+        x2 = self.fcn(self.transformer_decoder2(*self.encode(src, c, tgt)))
+        return x1, x2

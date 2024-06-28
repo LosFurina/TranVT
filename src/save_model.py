@@ -36,6 +36,8 @@ def load_model(exp_id: str, save_pattern: str, dim: int, args: Args):
         model = src.models.GTranVTS(dim, args)
     elif args.model == "GumbelGraphormer":
         model = src.models.GumbelGraphormer(dim, args)
+    elif args.model == "GumbelTranVTV":
+        model = src.models.GumbelTranVTV(dim, args)
     else:
         raise ValueError("Model type not supported")
     optimizer = torch.optim.AdamW(model.parameters(), lr=0)
